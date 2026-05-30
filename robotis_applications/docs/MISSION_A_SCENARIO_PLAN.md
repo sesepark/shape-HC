@@ -352,19 +352,27 @@ DONE → [*]
 
 ## Blackboard 키 (전 팀 공통 합의 필요)
 
+> ⚠️ **2026-05-30 정정** — Task 1 Perception 코드 분석 결과 기존 토픽명 일부가 실제 발행명과 달라 정정. 자세한 내용은 [PERCEPTION_INTERFACE.md](./PERCEPTION_INTERFACE.md) 상단 "토픽명 정정 이력" 참조.
+
 | 키 | 방향 | 타입 | 설명 | 합의 상태 |
 |----|------|------|------|-----------|
 | `/active_mission` | mission_a → CM | `std_msgs/String` | 현재 활성 미션 ("A"~"D") | ⬜ 미합의 |
 | `/manipulator_state` | CM → mission_a | `std_msgs/String` | IDLE / GRASPING / ATTACHED / RELEASING | ⬜ 미합의 |
 | `/monitor_ocr/result` | Perception → mission_a | `std_msgs/String` (JSON) | OCR 결과 | ✅ 확정 |
 | `/detections` | Perception → mission_a | `PartDetectionArray` | 부품 검출 배열 | ✅ 확정 |
-| `/target_pose` | Perception → grasp_filter | `PoseStamped` | 집어야 할 부품 3D pose | 🔄 검증 중 |
+| **`/perception/wrist/target_one_pose`** | Perception → mission_a | `PoseStamped` | task list 반영 최종 target 1개 (wrist_task_grasp_planner_node) | 🔄 mission_a.py 적용 필요 |
+| `/perception/wrist/target_pose` | Perception (참고) | `PoseStamped` | per-detection 중심점 (wrist_projection_node). 일반적으로는 above가 우선 | 🔄 |
+| `/perception/wrist/target_pcd/<class>` | Perception → Manipulation | `PointCloud2` | 객체별 정제 PCD (wrist_grasp_pcd_node) | 🔄 GPD 입력 토픽 재합의 필요 |
+| `/perception/wrist/mask_cloud` | Perception → Manipulation | `PointCloud2` | 장면 전체 mask 합본 | 🔄 |
 | `/tray_region` | Perception → tray_place | TBD | 파란 트레이 위치 + 적재 영역 | ⬜ 미합의 |
 | `/attached_object` | CM → mission_a | `std_msgs/String` | 파지 물체명 (""=없음) | ✅ 확정 |
-| `/camera_right/points_base` | Perception → GPD | `PointCloud2` | base_link 기준 PCD | ✅ 확정 |
 | `/gpd/grasp_poses` | GPD → grasp_filter | `PoseArray` | grasp pose 후보 | ✅ 확정 |
 | `/attach_cmd` | mission_a → CM | `std_msgs/String` | 수동 attach | ✅ 확정 |
 | `/detach_cmd` | mission_a → CM | `std_msgs/String` | 수동 detach | ✅ 확정 |
+
+**삭제된 잘못된 키** (이전 문서 표기 → 실제 발행 토픽으로 대체)
+- ~~`/target_pose`~~ → `/perception/wrist/target_one_pose` (mission_a.py 구독) 또는 `/perception/wrist/target_pose` (per-detection)
+- ~~`/camera_right/points_base`~~ → `/perception/wrist/mask_cloud` 또는 `/perception/wrist/target_pcd/<class>`
 
 ---
 
