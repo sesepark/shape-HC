@@ -9,6 +9,56 @@
 
 ---
 
+## ⚠️ 실행 전 준비 사항 (Task 2 정적 검증으로 발견)
+
+`~/AI_Worker_HC/robotis_applications/perception/` 의 코드만으로는 실행 불가. 추가로 필요한 자산:
+
+| 항목 | 상태 | 출처 / 우회 |
+|------|------|-------------|
+| YOLO 모델 `perception_part_detector/weights/best.pt` | ✅ 배치 완료 (2026-05-30) | [Google Drive: part_detector best.pt](https://drive.google.com/file/d/17BepvzEurXIQbh3F9X3SQDCB8iaqLkWC/view) |
+| YOLO 모델 `monitor_ocr/best.pt` | ✅ 배치 완료 (2026-05-30) | [Google Drive: monitor_ocr best.pt](https://drive.google.com/file/d/14H48riKH3KkKxky2yrCMufPfiGz6gfa0/view) |
+| `wrist_task_grasp_planner_node` 코드 | ❌ main 브랜치 미병합 | `fix/wrist-task-grasp-stability` 브랜치에 존재. 병합 또는 cherry-pick 필요 |
+| Docker 이미지 `ros2_jazzy_robotis_perception:latest` | ❌ 로컬 미존재, Dockerfile 미포함 | Perception 팀 docker registry / 빌드 스크립트 별도 보유 |
+| `~/robotis_ros2_ws` 워크스페이스 | ❌ root 소유, 비어 있음 | `sudo chown -R $USER:$USER ~/robotis_ros2_ws` 후 perception src 복사 |
+| 호스트 ROS 2 jazzy | ❌ `/opt/ros/` 없음 | 도커 안에서만 실행 가능 (정상) |
+| AI worker 로봇 (`ffw-SNPR48A1087.local`) | ✅ ping 4.7ms 도달 | 로봇 켜져 있고 LAN 접근 가능 |
+| Head ZED / Wrist RealSense | ✅ (로봇 측 USB) | 호스트엔 미연결, ROS 2 토픽으로 수신 |
+
+### 모델 파일 배치 방법
+
+`.pt` 파일은 용량 크고 `.gitignore`로 제외되므로 git에는 안 들어감. 다음 경로에 직접 배치:
+
+```bash
+# 1. Perception 팀에서 모델 받기 (Google Drive)
+#    - part_detector_best.pt:
+#      https://drive.google.com/file/d/17BepvzEurXIQbh3F9X3SQDCB8iaqLkWC/view
+#    - monitor_ocr_best.pt:
+#      https://drive.google.com/file/d/14H48riKH3KkKxky2yrCMufPfiGz6gfa0/view
+
+# 2. 정위치로 복사 (파일명 best.pt로 통일)
+PERC=~/AI_Worker_HC/robotis_applications/perception
+mkdir -p $PERC/perception_part_detector/weights
+cp ~/Downloads/part_detector_best.pt $PERC/perception_part_detector/weights/best.pt
+cp ~/Downloads/monitor_ocr_best.pt   $PERC/monitor_ocr/best.pt
+```
+
+**확인**: ament_python share 디렉토리 구조 (setup.py 기준)
+- `detector_node` 기본 경로: `<pkg_share>/perception_part_detector/weights/best.pt`
+  - 소스 트리: `perception/perception_part_detector/weights/best.pt`
+  - 오버라이드: `--ros-args -p model_path:=/path/to/best.pt`
+- `monitor_ocr_node` 기본 경로: `<pkg_share>/monitor_ocr/best.pt`
+  - 소스 트리: `perception/monitor_ocr/best.pt`
+  - 오버라이드: `--ros-args -p yolo_model_path:=/path/to/best.pt`
+
+**정적 검증 결과** (2026-05-30):
+- ✅ 38개 Python 파일 모두 문법 OK
+- ✅ 4개 `package.xml` 모두 valid XML
+- ✅ 9개 launch.py 모두 `LaunchDescription` 정상 호출
+- ✅ wrist `package.xml` 의존성 완전 (cv_bridge, message_filters, tf2_*, scipy, numpy, opencv 등)
+- ⚠️ `detector_node.py` 가 패키지 ROOT 위치 (모듈 디렉토리 안이 아님) — setup.py가 `py_modules`로 처리하는 비표준 ament_python 구조
+
+---
+
 ## ⚠️ System 팀 주의 — 토픽명 정정 이력
 
 | 이전 문서 표기 | 실제 발행 토픽 | 영향 |
