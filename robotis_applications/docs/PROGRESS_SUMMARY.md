@@ -1,114 +1,99 @@
-# 진행 상황 요약 (Mission A / Perception 통합)
+# 진행 상황 요약 (System 팀 — Perception 통합 / Mission A / VR)
 
-> **최종 업데이트**: 2026-05-31
-> **범위**: System 팀 관점의 Perception 통합 · 로컬 구동 검증 · mission_a 구현
-> **연관 문서**: [MISSION_A_SCENARIO_PLAN.md](./MISSION_A_SCENARIO_PLAN.md) ·
-> [PERCEPTION_INTERFACE.md](./PERCEPTION_INTERFACE.md) · [PERCEPTION_LOCAL_SETUP.md](./PERCEPTION_LOCAL_SETUP.md) ·
-> [mission/README.md](../mission/README.md)
+> **최종 업데이트**: 2026-05-31 · **브랜치**: `feature/mission-a`
+> **담당 4개 역할**: ① Perception 노드 6개 인터페이스 정리 ② 로컬 구동 검증 ③ Mission A 코드 작성 ④ VR 텔레오퍼레이션
 
 ---
 
-## 1. 레포 / 워크스페이스 구조
+## 0. 한눈에 보기 (먼저 읽어주세요)
 
-| 구분 | 경로 | 역할 |
-|------|------|------|
-| 소스 진실(git) | `~/AI_Worker_HC/` | 통합 monorepo (ai_worker / physical_ai_tools / robotis_applications) |
-| 실행 워크스페이스 | `~/robotis_ros2_ws` (도커 `/ws`) | colcon 빌드·노드 실행. AI_Worker_HC 바깥, rsync 사본 |
-| Perception upstream | [hublemon/Humanoid-Challenge-Perception](https://github.com/hublemon/Humanoid-Challenge-Perception) | 브랜치 **`demo/senario_A`** (최신), `fix/wrist-task-grasp-stability`(planner) |
+이번 작업은 **Perception 팀이 만든 노드들을 System 팀 입장에서 정리·검증하고, 그 위에서 Mission A 자율 동작 코드를 작성**한 것입니다. Perception 코드 내부를 모르더라도, 어떤 노드가 무슨 토픽을 내보내고 그걸 미션 코드가 어떻게 쓰는지만 알면 됩니다.
 
-- 도커: 사용자 `docker` 그룹 → `sudo` 불필요. 이미지 `ros2_jazzy_robotis_perception:latest` (직접 빌드).
-- 로봇 `ffw-SNPR48A1087.local` (SSH pw `root`) — bringup 이 카메라/TF/ZED 발행.
+**① Perception 노드 정리** — Perception 팀의 기능 6개(모니터 OCR / 부품 검출 / 3D 집기 타겟 / 장면 포인트클라우드 / 객체별 집기 PCD / 트레이 검출·잔여관리)를 입력·출력 토픽과 실행 방법 중심으로 문서화했습니다. 핵심은 "미션 코드가 구독할 토픽이 무엇인가"이고, 결론적으로 **부품 1개의 집을 위치는 `/perception/wrist/target_one_pose`, 남은 작업 수량은 `/perception/task_list`** 두 토픽으로 정리됩니다.
+
+**② 로컬 구동 검증** — 실제 로봇(bringup)을 켠 상태에서 로컬 PC 도커로 Perception 노드들을 직접 띄워봤고, **모니터 OCR 노드 1개를 제외한 나머지는 정상 작동**을 확인했습니다. OCR 노드는 코드 자체는 멀쩡하나 파이썬 가상환경(ocr_venv) 의존성이 깨져 있어 재설치가 필요한 상태에서 멈춰 있습니다.
+
+**③ Mission A 코드** — 검증된 Perception 토픽을 입력으로 받는 **상태 기계(state machine)** 를 새로 작성했습니다(`mission` 패키지). 모니터에서 목표 수량을 읽고 → 부품을 하나씩 집어 → 트레이에 놓고 → 트레이 비전이 수량을 차감하는 흐름이 끝까지 돌아가는 것을, 실제 하드웨어 없이도 검증하는 `--sim` 모드로 **전체 루프 통과**를 확인했습니다. (실제 팔 동작 연동은 Manipulation 팀 인터페이스 확정 후 단계.)
+
+**④ VR 텔레오퍼레이션** — Meta Quest 3로 로봇을 원격 조작하는 `robotis_vuer` 사용법을 정리했고, **HTTPS 인증서 자동 생성**까지 적용해 Quest 접속 단계를 통과했습니다. 컨트롤러→로봇(머리/리프트/그리퍼/팔 포즈) 매핑은 동작하며, 머리 추종·Leader 제어는 별도 브랜치에 있습니다. 주로 막히는 지점은 **Quest↔PC 네트워크(HTTPS/WSS·방화벽·WSL2)와 Vuer 라이브러리 버전 차이**입니다.
+
+> **요약 한 줄**: Perception은 OCR 노드 빼고 로컬 검증 완료, 그 토픽 위에 Mission A 상태기계를 만들어 sim 통과, VR은 접속·기본 조작까지 동작.
 
 ---
 
-## 2. Perception 로컬 구동 검증 (2026-05-30)
+## 1. 문서 가이드 (어떤 파일에 무엇이 있나)
 
-환경 구축(이미지·venv·colcon) + 실로봇 bringup 으로 구동.
+| 문서 | 담은 내용 | 언제 보면 되나 |
+|------|-----------|----------------|
+| **PROGRESS_SUMMARY.md** (본 문서) | 전체 진행상황 요약 + 문서 가이드 | **가장 먼저** |
+| [PERCEPTION_INTERFACE.md](./PERCEPTION_INTERFACE.md) | Perception **노드별 입출력 토픽·메시지·역할** (인터페이스 사전) | 어떤 토픽을 구독/발행할지 찾을 때 |
+| [PERCEPTION_LOCAL_SETUP.md](./PERCEPTION_LOCAL_SETUP.md) | 로컬 도커 **셋업·노드 실행 런북·트러블슈팅** + 구동 검증 현황 | Perception 노드를 직접 띄울 때 |
+| [MISSION_A_SCENARIO_PLAN.md](./MISSION_A_SCENARIO_PLAN.md) | Mission A **시나리오·상태기계 설계·구현 계획** | 미션 로직을 이해/확장할 때 |
+| [../mission/README.md](../mission/README.md) | `mission` 패키지 **빌드·실행법**(sim/실연동) | mission_a 를 돌릴 때 |
+| [VR_TELEOPERATION.md](./VR_TELEOPERATION.md) | VR **실행·토픽·조작 매핑·트러블슈팅** | Quest 텔레오퍼레이션 할 때 |
 
-| 노드 | 상태 |
+---
+
+## 2. 역할 ① — Perception 노드 6개 인터페이스 정리
+📄 출처: [PERCEPTION_INTERFACE.md](./PERCEPTION_INTERFACE.md) (상세), 실행법은 [PERCEPTION_LOCAL_SETUP.md](./PERCEPTION_LOCAL_SETUP.md)
+
+Perception 팀 기능을 6개 노드로 정리. **굵은 토픽**이 미션 코드가 실제로 쓰는 것.
+
+| # | 노드 | 핵심 역할 (한 줄) | 주요 출력 |
+|---|------|------------------|-----------|
+| ① | `monitor_ocr_node` | 지령 모니터를 읽어 **부품별 목표 수량** 파싱 | `/monitor_ocr/result` (JSON) |
+| ② | `detector_node` | 카메라 영상에서 **5종 부품 검출·분류**(YOLO) | `/detections` |
+| ③ | `wrist_projection_node` + `wrist_task_grasp_planner_node` | 검출 부품을 3D 좌표로 변환 + 점수화해 **집을 부품 1개 선택** | `/perception/wrist/target_pose`, **`/perception/wrist/target_one_pose`** |
+| ④ | `wrist_pointcloud_node` | 장면 전체 포인트클라우드 | `/perception/wrist/mask_cloud` |
+| ⑤ | `wrist_grasp_pcd_node` | 객체별 집기용 정제 포인트클라우드 | `/perception/wrist/target_pcd/<class>` |
+| ⑥ | `task_management` (`tray_occupancy_node` + `management_node`) | **파란 트레이 검출** + bbox 안 부품 카운트 → **남은 수량 계산** | `/perception/tray_contents`, **`/perception/task_list`** |
+
+- 부품 5종: `flange_nut / gear_ring / spacer_ring / hex_nut / dome_nut`.
+- ⑥은 최신 추가분(upstream `demo/senario_A`). `/perception/task_list` 잔여 = (OCR 목표 − 트레이에 들어간 수).
+- 실행 순서·명령은 LOCAL_SETUP "부록 A 런북" 참고.
+
+## 3. 역할 ② — 로컬 PC 구동 검증
+📄 출처: [PERCEPTION_LOCAL_SETUP.md](./PERCEPTION_LOCAL_SETUP.md) "실행 검증 현황"
+
+실로봇 bringup(카메라/TF) + 로컬 도커로 Perception 노드 구동.
+
+| 노드 | 결과 |
 |------|------|
-| `detector` / `projection` / `wrist_projection` / `wrist_pointcloud` / `wrist_grasp_pcd` / `wrist_task_grasp_planner` | ✅ 검증 |
-| `monitor_ocr` | ⚠️ 블로커 — 노드 로직 정상, `ocr_venv` 의존성 누락 (재생성 필요) |
+| detector / projection / wrist_pointcloud / wrist_grasp_pcd / **wrist_task_grasp_planner** | ✅ 정상 작동 |
+| `monitor_ocr_node` | ⚠️ **블로커** — 노드 로직은 정상, `ocr_venv` 의존성 누락(가상환경 재생성 필요) |
 
-**두 함정** (상세: PERCEPTION_LOCAL_SETUP "함정 ①②"):
-1. `ros2 run` shebang 이 시스템 python → venv 노드는 `prefix=`(launch) 또는 venv python 직접 실행.
-2. `ocr_venv` 가 오염된 시스템 python 위에서 생성돼 의존성 누락 → 깨끗이 재생성.
+- 환경: 도커 이미지 `ros2_jazzy_robotis_perception` 직접 빌드 + venv + colcon. 실행 워크스페이스는 `~/robotis_ros2_ws`(= 컨테이너 `/ws`).
+- 실행 중 정리한 두 함정: ① `ros2 run` 이 가상환경 파이썬을 안 씀(launch `prefix=` 또는 venv 파이썬 직접 실행으로 해결) ② ocr_venv 의존성 오염(깨끗이 재생성).
 
-> 신규 launch(`monitor_ocr.launch.py`, `task_management.launch.py`)는 `prefix="/ws/<venv>/bin/python3"`
-> 로 함정 ① 을 우회한다.
+## 4. 역할 ③ — Mission A 코드 작성
+📦 [robotis_applications/mission/](../mission/) · 📄 설계 [MISSION_A_SCENARIO_PLAN.md](./MISSION_A_SCENARIO_PLAN.md)
 
----
+검증된 Perception 토픽을 입력으로 받는 상태 기계 패키지 `mission` 신규 작성.
 
-## 3. Perception 신규 반영 — `task_management` (upstream `demo/senario_A`, 2026-05-31)
+- **흐름**: `INIT → A1_MONITOR(목표 수량 확정) → A2_SCAN(집을 부품 선택) → A3_PICK → A3_PLACE → VERIFY(트레이 차감 확인) → DONE`. 실패 시 RECOVERY/MANUAL_WAIT.
+- **입력**: 남은 수량 `/perception/task_list`(우선), 집을 위치 `/perception/wrist/target_one_pose`. (OCR 직접 파싱은 폴백.)
+- **구성**: `mission_a.py`(상태기계), `task_list.py`(부품명 매핑·잔여 관리, 단위 테스트 통과), `sim_driver.py`(`--sim` 가짜 토픽 주입).
+- **검증**: `--sim` 으로 목표 3개 → 3회 집기-적재 루프 → 트레이 차감(3→2→1→0) → DONE 까지 **전체 통과**.
+  ```bash
+  export ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1
+  ros2 run mission mission_a --ros-args -p sim_mode:=true
+  ```
+- **미연동**: 실제 팔 동작(A3_PICK/PLACE)은 Manipulation 팀 Action 인터페이스 확정 후. 그 전엔 수동 attach/detach 로 우회.
 
-트레이 검출 + 태스크 리스트 관리 패키지. 19개 파일 로컬 반영 완료.
+## 5. 역할 ④ — VR 텔레오퍼레이션
+📄 [VR_TELEOPERATION.md](./VR_TELEOPERATION.md) · 📦 [robotis_vuer/](../robotis_vuer/)
 
-```
-detector(/detections) ─┐
-ZED RGB ───────────────┴→ tray_occupancy_node ──/perception/tray_contents──┐
-monitor_ocr(/monitor_ocr/result) ────────────────────────────────────────┴→ management_node
-                                                                                   │
-                                                          /perception/task_list (잔여=OCR목표−트레이관측)
-                                                                                   │
-                                                                              mission_a (A1 / VERIFY)
-```
+Meta Quest 3 → WebXR(Vuer) → ROS 2 토픽으로 로봇 원격 조작(`vr_publisher_sg2`).
 
-| 노드 | 입력 | 출력 |
-|------|------|------|
-| `tray_occupancy_node` | `/detections`, ZED RGB (+별도 트레이 YOLO `tray_model_path`) | `/perception/tray_contents` (트레이 내 부품 카운트) |
-| `management_node` | `/monitor_ocr/result`, `/perception/tray_contents` | **`/perception/task_list`** (canonical 부품명, 잔여) |
-
-- canonical 표기는 공백/소문자: `flange nut / gear ring / spacer ring / hex nut / **dom nut**`
-  (detector class_name `flange_nut`/`dome_nut` 와 다름 → `mission/task_list.py` 변환).
-- 미해결: 트레이 **base_link place 좌표**(A3_PLACE용)는 아직 없음 (tray_contents 는 2D 카운트만).
+- **진행된 것**: Quest 접속(HTTPS/WSS 8012) + **자기서명 인증서 자동 생성** 적용, 컨트롤러→로봇 매핑(머리·리프트·그리퍼·팔 포즈) 동작. 실행: `ros2 launch robotis_vuer vr.launch.py model:=sg2`.
+- **막히는 지점**: ① Quest↔PC **네트워크**(HTTPS/WSS, 방화벽 8012, WSL2 포트포워딩) ② **Vuer 버전 차이**(검증 v0.1.5 vs 설치 v0.1.6 — 종료 시 `stop()` 없음) ③ `/joint_states` 선행 필요(follower 먼저 실행).
+- **범위 주의**: 현재 `feature/mission-a` 의 `vr.launch.py` 는 `model` 인자뿐. **머리 추종·Leader 제어는 별도 브랜치** `feature/vr-head-tracking-leader-sg2`.
 
 ---
 
-## 4. mission_a 구현 (System, 2026-05-31)
-
-`robotis_applications/mission/` 를 ament_python 패키지 `mission` 으로 구성.
-
-| 모듈 | 내용 |
-|------|------|
-| `mission/mission_a.py` | FSM (INIT→A1→A2→A3_PICK→A3_PLACE→VERIFY→DONE/RECOVERY/MANUAL_WAIT) |
-| `mission/task_list.py` | OCR(한국어)·canonical 부품명 → `{class_name: 잔여}`, 빌드/차감/완료 (단위 테스트 통과) |
-| `mission/sim_driver.py` | `--sim` fake 토픽 주입 — task_management 파이프라인 모사 |
-
-**구현된 로직**
-- task 소스: `/perception/task_list`(있으면 우선) → OCR 직접파싱 폴백 → 10초 강제 OK 폴백.
-- A2_SCAN: `/perception/wrist/target_one_pose`(planner) 수신, `frame_id==base_link` 검사, consume-once.
-- VERIFY: perception-owned 면 **트레이 차감(잔여 감소)** 으로 적재 검증, 아니면 자체 차감(성공 가정).
-- state 별 timeout, RECOVERY 재시도(max 3) → MANUAL_WAIT.
-
-**검증 (sim, 격리 도메인 99)**
-```
-INIT→A1(/perception/task_list 총3 확정)
-→ 루프1 flange_nut(잔여3→2) → 루프2 hex_nut(2→1) → 루프3 hex_nut(1→0)
-→ VERIFY 잔여0 → DONE   ✅ 전 전이·트레이 차감 검증 통과
-```
-실행: `ros2 run mission mission_a --ros-args -p sim_mode:=true` (격리: `ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1`).
-
----
-
-## 5. 확정된 인터페이스 (mission_a 기준)
-
-| 토픽 | 방향 | 용도 |
-|------|------|------|
-| `/perception/task_list` | Perception → mission_a | 잔여 task (A1/VERIFY source of truth) |
-| `/perception/wrist/target_one_pose` | Perception → mission_a | 최종 grasp target 1개 (planner) |
-| `/monitor_ocr/result` | Perception → mission_a | OCR 목표 (폴백 경로) |
-| `/detections` | Perception → mission_a | 부품 검출 배열 |
-| `/active_mission` `/attach_cmd` `/detach_cmd` | mission_a → CM/Manip | 미션 선언·수동 attach/detach |
-| `/manipulator_state` `/attached_object` | CM/Manip → mission_a | 상태·파지물체 |
-
----
-
-## 6. 남은 작업 (다음 단계)
-
-- [ ] **monitor_ocr `ocr_venv` 재생성** → 실 OCR→management_node→`/perception/task_list` 라이브 검증
-- [ ] **트레이 YOLO 모델 `tray_best.pt` 배치** (launch `tray_model_path`)
-- [ ] **A3_PLACE place 좌표**: 트레이 base_link 3D 위치/적재영역 인터페이스 Perception+Manipulation 협의
-- [ ] **Phase 2 Manipulation 연동**: `bin_pick`/`tray_place` Action (전엔 `/attach_cmd`·`/detach_cmd` 수동 우회)
-- [ ] CM 토픽명(`/active_mission`,`/manipulator_state`,`/attached_object`) 전 팀 합의
-- [ ] planner 가 `/perception/task_list`(잔여) 를 반영하도록 협의 (현재 `/monitor_ocr/result` 만 구독 — 적재분 재선정 가능성)
-- [ ] `build/`·`install/`·`log/` `.gitignore` 추가
+## 6. 남은 작업
+- [ ] `monitor_ocr` ocr_venv 재생성 → 실 OCR → `/perception/task_list` 라이브 검증
+- [ ] 트레이 YOLO 모델 `tray_best.pt` 배치
+- [ ] A3_PLACE용 트레이 base_link place 좌표 인터페이스 협의 (현재 tray_contents 는 2D 카운트만)
+- [ ] Phase 2 Manipulation 연동 (`bin_pick`/`tray_place` Action), CM 토픽명 합의
+- [ ] VR: Vuer 버전 정합 / Quest 접속 환경(방화벽·WSL2) 안정화

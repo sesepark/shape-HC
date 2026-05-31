@@ -304,9 +304,3 @@ ros2 run robotis_vuer vr_publisher_sg2 --ros-args \
 - 노드 소스: [vr_publisher_sg2.py](../robotis_vuer/robotis_vuer/vr_publisher_sg2.py)
   (동일 패키지에 `vr_publisher_hx5.py`, `vr_publisher_sh5.py`도 있으며 같은 인증서 경로 로직을 사용)
 - Vuer 공식: [docs.vuer.ai](https://docs.vuer.ai) · [github.com/vuer-ai/vuer](https://github.com/vuer-ai/vuer)
-</content>
-</invoke>
-
-<result>
-The file /home/jihun/AI_Worker_HC/robotis_applications/docs/VR_TELEOPERATION.md해당 파일이 생성되었습니다.
-</result>
