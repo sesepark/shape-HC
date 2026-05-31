@@ -434,7 +434,35 @@ DONE → [*]
 
 > **전략**: 외부 블로커(monitor_ocr venv, Manipulation Action 서버, Hand-Eye Calib)에 막히지 않도록
 > **mission_a 내부 로직을 먼저 완성**하고, 외부 의존부는 stub/fallback/fake-publisher로 분리해 단독 테스트 가능하게 만든다.
-> 현재 [mission_a.py](../mission/mission_a.py)는 상태 전이 골격 + 토픽 입출력만 있는 stub.
+
+### Perception 코드 분석 → mission_a 반영 매핑
+
+mission_a 는 **추측이 아니라 Perception 실제 소스 코드를 분석**해 나온 토픽명·메시지 구조·의미를
+그대로 입력 인터페이스로 삼았다 (분석 출처: [PERCEPTION_INTERFACE.md](./PERCEPTION_INTERFACE.md)).
+
+| Perception 코드 분석 결과 | mission_a 코드 반영 |
+|---------------------------|---------------------|
+| `wrist_task_grasp_planner_node` 가 task 필터 + grasp score top-1 을 **`/perception/wrist/target_one_pose`**(`PoseStamped`, base_link) 로 발행 | A2_SCAN 이 이 토픽 구독 + `frame_id=='base_link'` 검증 + consume-once ([mission_a.py](../mission/mission_a.py) `_on_target_pose`/`_run_a2_scan`) |
+| 구 `/target_pose` 는 실제 발행 안 됨 (per-detection 은 `/perception/wrist/target_pose`) | 구 `/target_pose` 구독 **제거** |
+| `management_node` 가 **`/perception/task_list`**(JSON, canonical 부품명, 잔여=OCR목표−트레이관측) 발행 | `/perception/task_list` 구독 + perception-owned 모드(`_on_task_list`). canonical→class_name 매핑 `CANONICAL_TO_CLASS`('dom nut'→`dome_nut` 등) 신설 |
+| `tray_occupancy_node` 가 트레이 진입 부품을 카운트 → 잔여 자동 감소 | VERIFY 가 자체 차감이 아니라 **잔여 감소 관측**(baseline 대비)으로 적재 검증 |
+| `monitor_ocr` `/monitor_ocr/result` JSON(`parts[{name,count}]`, `latest_screen_detected`) + "OCR 실패 시 10초 강제 OK" 정책 | management 미가동 시 이 JSON 직접 파싱(폴백) + `FALLBACK_OK_DELAY=10` 강제 OK |
+| 부품 5종 class_name + 한국어/canonical 표기 차이 | `task_list.py` 매핑 테이블(`PART_NAME_TO_CLASS`, `CANONICAL_TO_CLASS`) |
+| `detector_node` `/detections` = `PartDetectionArray` | 구독 (메시지 패키지 미빌드 시 import 가드) |
+
+### 연동 검증 상태 (정직한 현황)
+
+| 항목 | 상태 |
+|------|------|
+| 인터페이스 정합성 — 토픽명/타입/JSON 구조를 perception **실제 소스에서 추출** | ✅ (추측 아님) |
+| `--sim` 검증 — perception 메시지 포맷을 모사한 fake publisher 로 전 루프 통과 | ✅ |
+| **라이브 end-to-end** — 실제 perception 스택 + mission_a **동시 구동 검증** | ⬜ **미완** |
+
+> ⚠️ **요약**: mission_a 는 "실제로 작동하는 perception 코드"의 **인터페이스 분석에 기반**해 작성됐고,
+> 그 인터페이스를 모사한 sim 으로는 통과했다. 그러나 **두 스택을 같이 띄운 라이브 연동은 아직 검증 전**이다.
+> 미검증 블로커: ① `monitor_ocr` ocr_venv (→`/perception/task_list` 라이브 미발행) ②
+> 트레이 모델 `tray_best.pt` 미배치 ③ Manipulation Action(A3_PICK/PLACE) 미연동.
+> → 라이브 검증은 monitor_ocr venv 해소 후 "perception 풀스택 + `ros2 run mission mission_a`" 동시 구동으로 진행.
 
 ### 사전 정비 (P0 — 외부 의존 0) ✅ **완료 (2026-05-30)**
 | # | 작업 | 대상 | 상태 |
