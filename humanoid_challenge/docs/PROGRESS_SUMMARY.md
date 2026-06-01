@@ -105,7 +105,7 @@ Meta Quest 3 → WebXR(Vuer) → ROS 2 토픽으로 로봇 원격 조작(`vr_pub
 
 ## 6. 남은 작업
 - [ ] `monitor_ocr` ocr_venv 재생성 → 실 OCR → `/perception/task_list` 라이브 검증
-- [ ] 트레이 YOLO 모델 `tray_best.pt` 배치
+- [x] 트레이 YOLO 모델 `tray_best.pt` 배치 (2026-06-01, segment·class `blue_tray`, 로드 검증 완료) — 단 라이브 검출 검증은 미완
 - [ ] A3_PLACE용 트레이 base_link place 좌표 인터페이스 협의 (현재 tray_contents 는 2D 카운트만)
 - [ ] Phase 2 Manipulation 연동 (`bin_pick`/`tray_place` Action), CM 토픽명 합의
 - [ ] VR: Vuer 버전 정합 / Quest 접속 환경(방화벽·WSL2) 안정화

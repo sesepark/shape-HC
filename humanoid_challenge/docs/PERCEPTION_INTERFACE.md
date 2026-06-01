@@ -45,6 +45,7 @@
 |------|------|-------------|
 | YOLO 모델 `perception_part_detector/weights/best.pt` | ✅ 배치 완료 (2026-05-30) | [Google Drive: part_detector best.pt](https://drive.google.com/file/d/17BepvzEurXIQbh3F9X3SQDCB8iaqLkWC/view) |
 | YOLO 모델 `monitor_ocr/best.pt` | ✅ 배치 완료 (2026-05-30) | [Google Drive: monitor_ocr best.pt](https://drive.google.com/file/d/14H48riKH3KkKxky2yrCMufPfiGz6gfa0/view) |
+| YOLO 모델 `task_management/models/tray_best.pt` (파랑 트레이) | ✅ 배치+로드 검증 (2026-06-01, segment 모델 class `blue_tray`) | [Google Drive: blue_tray_yolo](https://drive.google.com/drive/folders/1MzRzf27wtmPqp8-KqR9iH_AnrLsgaPOU?usp=sharing) |
 | `wrist_task_grasp_planner_node` 코드 | ✅ feature 브랜치에서 cherry-pick 완료 (2026-05-30) | `fix/wrist-task-grasp-stability` 브랜치의 5개 파일 (planner_node.py, planner.launch.py, wrist_all.launch.py, setup.py, params.yaml) 반영 |
 | Docker 이미지 `ros2_jazzy_robotis_perception:latest` | ❌ 로컬 미존재, Dockerfile 미포함 | Perception 팀 docker registry / 빌드 스크립트 별도 보유 |
 | `~/robotis_ros2_ws` 워크스페이스 | ❌ root 소유, 비어 있음 | `sudo chown -R $USER:$USER ~/robotis_ros2_ws` 후 perception src 복사 |
@@ -556,7 +557,7 @@ hold_last_pose_sec: 2.0
 **실행** (별도 트레이 YOLO 모델 필요, yolo_venv prefix)
 ```bash
 ros2 launch task_management task_management.launch.py \
-  tray_model_path:=/ws/src/task_management/weights/tray_best.pt
+  tray_model_path:=/ws/src/humanoid_challenge/task_management/models/tray_best.pt
 ```
 
 **Subscribe**
@@ -839,7 +840,7 @@ translation ≈ [-9.7e-06, 1.0e-05, 1.0e-05]   # 거의 0
 | Manipulation GPD 입력 토픽 정정 (`/camera_right/points_base` → `/perception/wrist/mask_cloud` 또는 `/perception/wrist/target_pcd/<class>`) | Manipulation | 5.31 | ⬜ |
 | `task_management` 발행 `/perception/task_list` mission_a 연동 (VERIFY/A1) | System | 6.1 | 🔄 (코드 반영 중) |
 | 트레이 base_link place 좌표(A3_PLACE용) 인터페이스 협의 — 현재 `/perception/tray_contents` 는 2D 카운트만 | Perception+Manipulation | 6.1 | ⬜ |
-| 트레이 YOLO 모델 `tray_best.pt` 배치 (launch `tray_model_path`) | Perception | 6.1 | ⬜ |
+| 트레이 YOLO 모델 `tray_best.pt` 배치 ([Drive](https://drive.google.com/drive/folders/1MzRzf27wtmPqp8-KqR9iH_AnrLsgaPOU?usp=sharing)) → `task_management/models/tray_best.pt` | System | 6.1 | ✅ (2026-06-01 배치·로드 검증) |
 | TF tree `camera_right_color_optical_frame → base_link` 확인 / launch 등록 | Perception | 이번 주 | 🔄 |
 | `monitor_ocr_node` YOLO 전환 + 실모니터 검증 | Perception | 이번 주 | 🔄 |
 | wrist cam 기준 추가 학습 반영 후 `detector_node` 재검증 | Perception | 이번 주 | ⬜ |
