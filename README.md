@@ -69,6 +69,18 @@ detector(/detections) + ZED RGB → tray_occupancy_node → /perception/tray_con
 | [docs/PERCEPTION_LOCAL_SETUP.md](humanoid_challenge/docs/PERCEPTION_LOCAL_SETUP.md) | 로컬 도커 실행 셋업·런북·트러블슈팅 |
 | [mission/README.md](humanoid_challenge/mission/README.md) | mission 패키지 빌드·실행 |
 
+## 학습 모델 파일 위치
+
+도커 이미지는 학습된 `.pt` 모델 파일을 포함하지 않는다. 컨테이너 실행 전 로컬 소스 트리에 아래처럼 배치한다.
+
+```text
+humanoid_challenge/perception_part_detector/weights/best.pt
+humanoid_challenge/monitor_ocr/best.pt
+humanoid_challenge/task_management/models/tray_best.pt
+```
+
+`task_management`의 tray 모델은 `TRAY_MODEL_PATH` 환경 변수나 `tray_model_path` launch argument로 다른 경로를 지정할 수 있다.
+
 ---
 
 ## 남은 작업

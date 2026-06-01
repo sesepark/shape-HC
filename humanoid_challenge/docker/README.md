@@ -123,8 +123,11 @@ The image does not include model weights. Put them in the local source tree:
 ```text
 humanoid_challenge/perception_part_detector/weights/best.pt
 humanoid_challenge/monitor_ocr/best.pt
+humanoid_challenge/task_management/models/tray_best.pt
 ```
 
 The container script creates the `weights/` directory if it is missing, so the
-ROS packages can still build. Runtime YOLO/OCR startup still needs the actual
-`.pt` files.
+ROS packages can still build. It also creates `task_management/models/` for the
+tray detector. Runtime YOLO/OCR/tray startup still needs the actual `.pt` files.
+The tray model path can be overridden with the `TRAY_MODEL_PATH` environment
+variable or the `tray_model_path` launch argument.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter, deque
 from contextlib import suppress
 from typing import Dict, Sequence, Tuple
@@ -53,7 +54,13 @@ class TrayOccupancyNode(Node):
         self.declare_parameter("detections_topic", "/detections")
         self.declare_parameter("image_topic", "/zed/zed_node/rgb/image_rect_color")
         self.declare_parameter("tray_contents_topic", "/perception/tray_contents")
-        self.declare_parameter("tray_model_path", "/home/parkum/best.pt")
+        self.declare_parameter(
+            "tray_model_path",
+            os.environ.get(
+                "TRAY_MODEL_PATH",
+                "/ws/src/humanoid_challenge/task_management/models/tray_best.pt",
+            ),
+        )
         self.declare_parameter("tray_conf_threshold", 0.50)
         self.declare_parameter("tray_iou_threshold", 0.35)
         self.declare_parameter("tray_imgsz", 640)

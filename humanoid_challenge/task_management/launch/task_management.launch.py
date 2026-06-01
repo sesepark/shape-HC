@@ -1,3 +1,5 @@
+import os
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
@@ -6,11 +8,16 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
+    default_tray_model = os.environ.get(
+        "TRAY_MODEL_PATH",
+        "/ws/src/humanoid_challenge/task_management/models/tray_best.pt",
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument("detections_topic", default_value="/detections"),
         DeclareLaunchArgument("image_topic", default_value="/zed/zed_node/rgb/image_rect_color"),
         DeclareLaunchArgument("tray_contents_topic", default_value="/perception/tray_contents"),
-        DeclareLaunchArgument("tray_model_path", default_value="/home/parkum/best.pt"),
+        DeclareLaunchArgument("tray_model_path", default_value=default_tray_model),
         DeclareLaunchArgument("tray_conf_threshold", default_value="0.50"),
         DeclareLaunchArgument("tray_iou_threshold", default_value="0.35"),
         DeclareLaunchArgument("tray_imgsz", default_value="640"),

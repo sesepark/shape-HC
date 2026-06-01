@@ -57,6 +57,7 @@ setup_x11() {
 prepare_workspace() {
     mkdir -p "${SCRIPT_DIR}/workspace"
     mkdir -p "${PROJECT_DIR}/perception_part_detector/weights"
+    mkdir -p "${PROJECT_DIR}/task_management/models"
 
     if [ ! -f "${PROJECT_DIR}/perception_part_detector/weights/best.pt" ]; then
         echo "Warning: perception_part_detector/weights/best.pt is missing."
@@ -66,6 +67,11 @@ prepare_workspace() {
     if [ ! -f "${PROJECT_DIR}/monitor_ocr/best.pt" ]; then
         echo "Warning: monitor_ocr/best.pt is missing."
         echo "         monitor_ocr will build, but YOLO-assisted OCR startup needs that model file."
+    fi
+
+    if [ ! -f "${PROJECT_DIR}/task_management/models/tray_best.pt" ]; then
+        echo "Warning: task_management/models/tray_best.pt is missing."
+        echo "         tray_occupancy_node will build, but tray YOLO startup needs that model file."
     fi
 }
 
