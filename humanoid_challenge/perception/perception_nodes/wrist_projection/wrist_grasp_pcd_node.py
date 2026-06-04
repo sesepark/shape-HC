@@ -22,7 +22,7 @@ Stage 2 - grasp-quality cleanup:
     2.1 range filter (already applied in back-projection)
     2.2 mask erosion (shrink mask N px to drop edge ghosting) -- applied to the
         mask BEFORE membership test
-    2.3 SOR statistical outlier removal (open3d > scipy > numpy)
+    2.3 SOR statistical outlier removal (Open3D)
 
 Stage 3 - transform to base_link + per-class dynamic publish.
 
@@ -33,6 +33,7 @@ from typing import Dict, Optional
 
 import cv2
 import numpy as np
+import open3d as o3d
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -151,7 +152,7 @@ class WristGraspPCDNode(Node):
         self.latest_depth = None
         self.latest_depth_stamp = None
         self._pubs: Dict[str, rclpy.publisher.Publisher] = {}
-        self._sor_backend = self._select_sor_backend()
+        self._sor_backend = 'open3d'
 
         # ---- TF ---------------------------------------------------------
         self.tf_buffer = tf2_ros.Buffer()
@@ -296,59 +297,19 @@ class WristGraspPCDNode(Node):
         return None
 
     # ---- SOR ------------------------------------------------------------
-    def _select_sor_backend(self) -> str:
-        try:
-            import open3d  # noqa: F401
-            return 'open3d'
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            from scipy.spatial import cKDTree  # noqa: F401
-            return 'scipy'
-        except Exception:  # noqa: BLE001
-            pass
-        return 'numpy'
-
     def _statistical_outlier_removal(self, points: np.ndarray) -> np.ndarray:
-        xyz = points[:, :3].astype(np.float64)
-        n = xyz.shape[0]
+        n = points.shape[0]
         k = min(self.sor_k, n - 1)
         if k < 1:
             return points
-        if self._sor_backend == 'open3d':
-            return self._sor_open3d(points)
-        if self._sor_backend == 'scipy':
-            from scipy.spatial import cKDTree
-            tree = cKDTree(xyz)
-            dists, _ = tree.query(xyz, k=k + 1)
-            mean_dists = dists[:, 1:].mean(axis=1)
-        else:
-            mean_dists = self._knn_mean_dist_numpy(xyz, k)
-        mu = float(mean_dists.mean())
-        sigma = float(mean_dists.std())
-        keep = mean_dists <= (mu + self.sor_std_ratio * sigma)
-        return points[keep]
+        return self._sor_open3d(points)
 
     def _sor_open3d(self, points: np.ndarray) -> np.ndarray:
-        import open3d as o3d
         pc = o3d.geometry.PointCloud()
         pc.points = o3d.utility.Vector3dVector(points[:, :3].astype(np.float64))
         _, ind = pc.remove_statistical_outlier(
             nb_neighbors=self.sor_k, std_ratio=self.sor_std_ratio)
         return points[np.asarray(ind, dtype=np.int64)]
-
-    @staticmethod
-    def _knn_mean_dist_numpy(xyz: np.ndarray, k: int) -> np.ndarray:
-        n = xyz.shape[0]
-        out = np.empty(n, dtype=np.float64)
-        chunk = 512
-        for start in range(0, n, chunk):
-            end = min(start + chunk, n)
-            block = xyz[start:end]
-            d = np.linalg.norm(block[:, None, :] - xyz[None, :, :], axis=2)
-            d.sort(axis=1)
-            out[start:end] = d[:, 1:k + 1].mean(axis=1)
-        return out
 
     # ---- PointCloud2 packing -------------------------------------------
     def _make_cloud_msg(self, points, frame_id, stamp) -> PointCloud2:

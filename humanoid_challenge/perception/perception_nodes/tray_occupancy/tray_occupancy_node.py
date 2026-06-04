@@ -7,6 +7,7 @@ import time
 from contextlib import suppress
 from typing import Sequence, Tuple
 
+from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -23,23 +24,11 @@ Point = Tuple[float, float]
 
 
 def default_tray_model_path() -> str:
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return os.path.join(
-            get_package_share_directory("perception"),
-            "model",
-            "tray_occupancy_best.pt",
-        )
-    except Exception:
-        return os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__),
-                "..",
-                "..",
-                "model",
-                "tray_occupancy_best.pt",
-            )
-        )
+    return os.path.join(
+        get_package_share_directory("perception"),
+        "model",
+        "tray_occupancy_best.pt",
+    )
 
 
 def point_in_bbox(point: Point, bbox: Sequence[int], margin_px: float) -> bool:

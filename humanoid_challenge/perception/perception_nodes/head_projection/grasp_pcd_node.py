@@ -19,8 +19,7 @@ Stage 2 - grasp-quality cleanup:
                          excluded.
     (3) statistical    : Statistical Outlier Removal (SOR) - drop points whose
         outlier removal  mean distance to k neighbors is far from the global
-                         mean (mean + std_ratio * std). Open3D if available,
-                         else scipy.cKDTree, else a pure-NumPy fallback.
+                         mean (mean + std_ratio * std). Open3D backend.
 
 Stage 3 - transform + per-object publish:
     Transform the cleaned points from the camera optical frame to base_link
@@ -35,6 +34,7 @@ from typing import Dict, Optional
 
 import cv2
 import numpy as np
+import open3d as o3d
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -142,8 +142,7 @@ class GraspPCDNode(Node):
         # Dynamically created per-class publishers, keyed by class_name.
         self._pubs: Dict[str, rclpy.publisher.Publisher] = {}
 
-        # Detect available SOR backend once.
-        self._sor_backend = self._select_sor_backend()
+        self._sor_backend = 'open3d'
 
         # ---- TF ---------------------------------------------------------
         self.tf_buffer = tf2_ros.Buffer()
@@ -331,73 +330,25 @@ class GraspPCDNode(Node):
              z_v.astype(np.float32), rgb_float])
 
     # ---- Stage 2.3: statistical outlier removal ------------------------
-    def _select_sor_backend(self) -> str:
-        try:
-            import open3d  # noqa: F401
-            return 'open3d'
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            from scipy.spatial import cKDTree  # noqa: F401
-            return 'scipy'
-        except Exception:  # noqa: BLE001
-            pass
-        return 'numpy'
-
     def _statistical_outlier_removal(self, points: np.ndarray) -> np.ndarray:
         """Drop points whose mean distance to k neighbors is an outlier.
 
         Keeps points with mean_dist <= global_mean + std_ratio * global_std.
-        Backend chosen at startup: open3d > scipy > numpy.
+        Backend: Open3D.
         """
-        xyz = points[:, :3].astype(np.float64)
-        n = xyz.shape[0]
+        n = points.shape[0]
         k = min(self.sor_k, n - 1)
         if k < 1:
             return points
 
-        if self._sor_backend == 'open3d':
-            return self._sor_open3d(points)
-
-        if self._sor_backend == 'scipy':
-            from scipy.spatial import cKDTree
-            tree = cKDTree(xyz)
-            # k+1 because the nearest neighbor is the point itself.
-            dists, _ = tree.query(xyz, k=k + 1)
-            mean_dists = dists[:, 1:].mean(axis=1)
-        else:
-            # Pure-NumPy fallback. O(n^2) memory-wise chunked to stay safe.
-            mean_dists = self._knn_mean_dist_numpy(xyz, k)
-
-        mu = float(mean_dists.mean())
-        sigma = float(mean_dists.std())
-        thresh = mu + self.sor_std_ratio * sigma
-        keep = mean_dists <= thresh
-        return points[keep]
+        return self._sor_open3d(points)
 
     def _sor_open3d(self, points: np.ndarray) -> np.ndarray:
-        import open3d as o3d
         pc = o3d.geometry.PointCloud()
         pc.points = o3d.utility.Vector3dVector(points[:, :3].astype(np.float64))
         _, ind = pc.remove_statistical_outlier(
             nb_neighbors=self.sor_k, std_ratio=self.sor_std_ratio)
         return points[np.asarray(ind, dtype=np.int64)]
-
-    @staticmethod
-    def _knn_mean_dist_numpy(xyz: np.ndarray, k: int) -> np.ndarray:
-        """Mean distance to k nearest neighbors, chunked to bound memory."""
-        n = xyz.shape[0]
-        out = np.empty(n, dtype=np.float64)
-        chunk = 512
-        for start in range(0, n, chunk):
-            end = min(start + chunk, n)
-            block = xyz[start:end]                       # (b, 3)
-            # pairwise distances block vs all: (b, n)
-            d = np.linalg.norm(block[:, None, :] - xyz[None, :, :], axis=2)
-            # sort each row, skip self (col 0), take next k
-            d.sort(axis=1)
-            out[start:end] = d[:, 1:k + 1].mean(axis=1)
-        return out
 
     # ---- Stage 3: PointCloud2 packing ----------------------------------
     def _make_cloud_msg(self, points: np.ndarray, frame_id: str, stamp) -> PointCloud2:

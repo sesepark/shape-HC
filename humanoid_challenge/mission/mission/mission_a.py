@@ -19,18 +19,8 @@ from std_msgs.msg import String
 from geometry_msgs.msg import PoseStamped
 
 from mission.task_list import TaskList, CLASS_TO_PART_NAME
-
-try:
-    from mission_interfaces.srv import GetTaskList
-except ImportError:
-    GetTaskList = None
-
-# perception message package may not yet be on PYTHONPATH
-# during early phases — guard the import so the node still starts.
-try:
-    from perception.msg import PartDetectionArray
-except ImportError:
-    PartDetectionArray = None  # type: ignore[assignment]
+from mission_interfaces.srv import GetTaskList
+from perception.msg import PartDetectionArray
 
 
 # --------------------------------------------------------------------------- #
@@ -95,15 +85,8 @@ class MissionA(Node):
         # --- Subscribers ---
         self.sub_manipulator_state = self.create_subscription(
             String, '/manipulator_state', self._on_manipulator_state, 10)
-        if PartDetectionArray is not None:
-            self.sub_detections = self.create_subscription(
-                PartDetectionArray, '/detections', self._on_detections, 10)
-        else:
-            self.get_logger().warning(
-                'perception.msg not importable — '
-                '/detections subscription disabled. Build the message package '
-                'and re-source the workspace.')
-            self.sub_detections = None
+        self.sub_detections = self.create_subscription(
+            PartDetectionArray, '/detections', self._on_detections, 10)
         # A2_SCAN/A3_PICK target — wrist_task_grasp_planner_node 의 최종 1개 출력.
         self.sub_target_pose = self.create_subscription(
             PoseStamped, '/perception/wrist/target_one_pose',
@@ -112,14 +95,8 @@ class MissionA(Node):
             String, '/attached_object', self._on_attached_object, 10)
 
         # --- Service clients ---
-        self.task_list_client = None
-        if GetTaskList is not None:
-            self.task_list_client = self.create_client(
-                GetTaskList, self.task_list_service_name)
-        else:
-            self.get_logger().warning(
-                'mission_interfaces.srv.GetTaskList not importable — '
-                'task_list service client disabled.')
+        self.task_list_client = self.create_client(
+            GetTaskList, self.task_list_service_name)
 
         # --- Publishers ---
         self.pub_active_mission = self.create_publisher(
@@ -192,8 +169,6 @@ class MissionA(Node):
         self.get_logger().debug(f'[sub] /attached_object = "{msg.data}"')
 
     def _request_task_list_service(self) -> None:
-        if GetTaskList is None or self.task_list_client is None:
-            return
         if self._task_list_service_inflight or self._now() < self._task_list_service_next_try_time:
             return
 

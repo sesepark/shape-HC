@@ -1,5 +1,6 @@
 """부품 수량 테이블 OCR 결과를 여러 프레임에 걸쳐 안정화."""
 from collections import Counter
+from perception_nodes.monitor_ocr.ocr_pipeline_parts import PART_NAMES, N_ROWS
 
 
 class FrameAggregatorParts:
@@ -26,7 +27,6 @@ class FrameAggregatorParts:
         return self._aggregate()
 
     def _aggregate(self) -> dict:
-        from perception_nodes.monitor_ocr.ocr_pipeline_parts import PART_NAMES, N_ROWS
 
         hist   = self._history
         latest = hist[-1]

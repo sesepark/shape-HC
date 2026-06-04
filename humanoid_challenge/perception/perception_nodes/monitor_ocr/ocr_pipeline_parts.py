@@ -18,6 +18,7 @@ import os
 import re
 import time
 
+from ament_index_python.packages import get_package_share_directory
 from perception_nodes.monitor_ocr.paddle_ocr import ocr_run
 
 
@@ -49,23 +50,11 @@ _yolo_model = None
 
 def default_yolo_model_path() -> str:
     """설치된 perception 패키지 기준 기본 monitor OCR YOLO 모델 경로."""
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return os.path.join(
-            get_package_share_directory('perception'),
-            'model',
-            'monitor_ocr_best.pt',
-        )
-    except Exception:
-        return os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__),
-                '..',
-                '..',
-                'model',
-                'monitor_ocr_best.pt',
-            )
-        )
+    return os.path.join(
+        get_package_share_directory('perception'),
+        'model',
+        'monitor_ocr_best.pt',
+    )
 
 
 def load_yolo_model(model_path: str | None = None) -> str | None:
