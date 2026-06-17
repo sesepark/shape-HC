@@ -1,3 +1,6 @@
+from glob import glob
+import os
+
 from setuptools import find_packages, setup
 
 package_name = 'ffw_teleop'
@@ -16,6 +19,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -30,6 +34,8 @@ setup(
         'console_scripts': [
             'keyborad_control = ffw_teleop.keyboard_control:main',
             'mobile_teleop = ffw_teleop.mobile_teleop:main',
+            'right_wrist_depth_overlay = ffw_teleop.right_wrist_depth_overlay:main',
+            'teleop_alignment_status = ffw_teleop.alignment_status:main',
         ],
     },
 )

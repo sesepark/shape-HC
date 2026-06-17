@@ -13,7 +13,15 @@
   <author email="wwj@robotis.com">Woojin Wie</author>
 
   <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>python3-tk</depend>
+  <exec_depend>ffw_bringup</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>
