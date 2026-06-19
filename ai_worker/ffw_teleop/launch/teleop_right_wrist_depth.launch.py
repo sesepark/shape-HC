@@ -32,8 +32,8 @@ def make_wrist_camera_launch(condition):
             'depth_module.color_profile2': LaunchConfiguration('right_color_profile'),
             'enable_depth1': 'true',
             'enable_depth2': 'true',
-            'enable_color1': 'false',
-            'enable_color2': 'false',
+            'enable_color1': LaunchConfiguration('enable_left_color'),
+            'enable_color2': LaunchConfiguration('enable_right_color'),
             'align_depth.enable1': 'false',
             'align_depth.enable2': 'false',
             'pointcloud.enable1': 'false',
@@ -92,6 +92,7 @@ def generate_launch_description():
         condition=IfCondition(start_overlay),
         parameters=[{
             'depth_topic': LaunchConfiguration('depth_topic'),
+            'base_image_topic': LaunchConfiguration('base_image_topic'),
             'overlay_topic': LaunchConfiguration('overlay_topic'),
             'compressed_topic': LaunchConfiguration('compressed_topic'),
             'center_distance_topic': LaunchConfiguration('center_distance_topic'),
@@ -102,6 +103,14 @@ def generate_launch_description():
             'roi_size_px': LaunchConfiguration('roi_size_px'),
             'jpeg_quality': LaunchConfiguration('jpeg_quality'),
             'colormap': LaunchConfiguration('colormap'),
+            'depth_colormap': LaunchConfiguration('depth_colormap'),
+            'base_alpha': LaunchConfiguration('base_alpha'),
+            'depth_alpha': LaunchConfiguration('depth_alpha'),
+            'base_image_timeout_s': LaunchConfiguration('base_image_timeout_s'),
+            'show_depth_contours': LaunchConfiguration('show_depth_contours'),
+            'contour_near_depth_m': LaunchConfiguration('contour_near_depth_m'),
+            'contour_min_area_px': LaunchConfiguration('contour_min_area_px'),
+            'invalid_depth_mode': LaunchConfiguration('invalid_depth_mode'),
         }],
     )
 
@@ -113,6 +122,7 @@ def generate_launch_description():
         condition=IfCondition(start_left_overlay),
         parameters=[{
             'depth_topic': LaunchConfiguration('left_depth_topic'),
+            'base_image_topic': LaunchConfiguration('left_base_image_topic'),
             'overlay_topic': LaunchConfiguration('left_overlay_topic'),
             'compressed_topic': LaunchConfiguration('left_compressed_topic'),
             'center_distance_topic': LaunchConfiguration('left_center_distance_topic'),
@@ -123,6 +133,14 @@ def generate_launch_description():
             'roi_size_px': LaunchConfiguration('roi_size_px'),
             'jpeg_quality': LaunchConfiguration('jpeg_quality'),
             'colormap': LaunchConfiguration('colormap'),
+            'depth_colormap': LaunchConfiguration('depth_colormap'),
+            'base_alpha': LaunchConfiguration('base_alpha'),
+            'depth_alpha': LaunchConfiguration('depth_alpha'),
+            'base_image_timeout_s': LaunchConfiguration('base_image_timeout_s'),
+            'show_depth_contours': LaunchConfiguration('show_depth_contours'),
+            'contour_near_depth_m': LaunchConfiguration('contour_near_depth_m'),
+            'contour_min_area_px': LaunchConfiguration('contour_min_area_px'),
+            'invalid_depth_mode': LaunchConfiguration('invalid_depth_mode'),
         }],
     )
 
@@ -161,8 +179,12 @@ def generate_launch_description():
         DeclareLaunchArgument('right_depth_profile', default_value='480,270,15'),
         DeclareLaunchArgument('left_color_profile', default_value='424,240,15'),
         DeclareLaunchArgument('right_color_profile', default_value='424,240,15'),
+        DeclareLaunchArgument('enable_left_color', default_value='true'),
+        DeclareLaunchArgument('enable_right_color', default_value='true'),
         DeclareLaunchArgument(
             'depth_topic', default_value='/camera_right/camera_right/depth/image_rect_raw'),
+        DeclareLaunchArgument(
+            'base_image_topic', default_value='/camera_right/camera_right/color/image_raw'),
         DeclareLaunchArgument(
             'overlay_topic', default_value='/teleop/wrist_right/depth_overlay'),
         DeclareLaunchArgument(
@@ -171,6 +193,8 @@ def generate_launch_description():
             'center_distance_topic', default_value='/teleop/wrist_right/center_distance_m'),
         DeclareLaunchArgument(
             'left_depth_topic', default_value='/camera_left/camera_left/depth/image_rect_raw'),
+        DeclareLaunchArgument(
+            'left_base_image_topic', default_value='/camera_left/camera_left/color/image_raw'),
         DeclareLaunchArgument(
             'left_overlay_topic', default_value='/teleop/wrist_left/depth_overlay'),
         DeclareLaunchArgument(
@@ -183,7 +207,15 @@ def generate_launch_description():
         DeclareLaunchArgument('max_depth_m', default_value='1.50'),
         DeclareLaunchArgument('roi_size_px', default_value='32'),
         DeclareLaunchArgument('jpeg_quality', default_value='70'),
-        DeclareLaunchArgument('colormap', default_value='TURBO'),
+        DeclareLaunchArgument('colormap', default_value='VIRIDIS'),
+        DeclareLaunchArgument('depth_colormap', default_value=''),
+        DeclareLaunchArgument('base_alpha', default_value='0.70'),
+        DeclareLaunchArgument('depth_alpha', default_value='0.30'),
+        DeclareLaunchArgument('base_image_timeout_s', default_value='0.5'),
+        DeclareLaunchArgument('show_depth_contours', default_value='true'),
+        DeclareLaunchArgument('contour_near_depth_m', default_value='0.55'),
+        DeclareLaunchArgument('contour_min_area_px', default_value='30.0'),
+        DeclareLaunchArgument('invalid_depth_mode', default_value='base_only'),
         DeclareLaunchArgument('right_goal_topic', default_value='/r_goal_pose'),
         DeclareLaunchArgument('left_goal_topic', default_value='/l_goal_pose'),
         DeclareLaunchArgument('right_current_topic', default_value='/r_gripper_pose'),

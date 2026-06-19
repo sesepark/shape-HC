@@ -34,6 +34,7 @@ setup(
         'console_scripts': [
             'keyborad_control = ffw_teleop.keyboard_control:main',
             'mobile_teleop = ffw_teleop.mobile_teleop:main',
+            'wrist_depth_overlay = ffw_teleop.right_wrist_depth_overlay:main',
             'right_wrist_depth_overlay = ffw_teleop.right_wrist_depth_overlay:main',
             'teleop_alignment_status = ffw_teleop.alignment_status:main',
         ],
