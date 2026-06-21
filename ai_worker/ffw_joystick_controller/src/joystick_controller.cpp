@@ -443,16 +443,25 @@ controller_interface::return_type JoystickController::update(
     // Read and normalize sensor values
     std::vector<double> normalized_values = read_and_normalize_sensor_values(sensor_idx);
 
-    // Check if any joystick is active
-    bool any_sensorxel_joy_active = std::any_of(normalized_values.begin(), normalized_values.end(),
-        [](double value) {return std::abs(value) > 0.0;});
+    // Check only motion axes. The tact switch is handled separately and should not break hold.
+    bool any_sensorxel_joy_active = false;
+    for (size_t value_idx = 0; value_idx < normalized_values.size(); ++value_idx) {
+      if (value_idx == constants::TACT_SWITCH_INTERFACE_INDEX) {
+        continue;
+      }
+      if (std::abs(normalized_values[value_idx]) > 0.0) {
+        any_sensorxel_joy_active = true;
+        break;
+      }
+    }
 
     // Update joystick values
     update_joystick_values(sensor_name, normalized_values, joystick_values,
                           left_tact_switch_pressed, right_tact_switch_pressed);
 
     // Update last active positions when joystick becomes inactive
-    if (was_active_ && !any_sensorxel_joy_active && !current_joint_states_.name.empty() &&
+    bool sensor_was_active = sensor_was_active_[sensor_name];
+    if (sensor_was_active && !any_sensorxel_joy_active && !current_joint_states_.name.empty() &&
       !controlled_joints.empty())
     {
       for (size_t i = 0; i < controlled_joints.size(); ++i) {
@@ -486,7 +495,7 @@ controller_interface::return_type JoystickController::update(
       publish_joint_trajectory(controlled_joints, positions, sensor_name);
     }
 
-    was_active_ = any_sensorxel_joy_active;
+    sensor_was_active_[sensor_name] = any_sensorxel_joy_active;
     sensorxel_joy_values_[sensor_idx] = normalized_values;
   }
 

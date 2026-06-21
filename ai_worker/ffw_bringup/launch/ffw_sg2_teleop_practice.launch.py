@@ -71,7 +71,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'leader_controller_config',
-            default_value='ffw_lg2_leader_ai_hardware_controller_no_head.yaml'),
+            default_value='ffw_lg2_leader_ai_hardware_controller.yaml'),
         DeclareLaunchArgument('init_position', default_value='true'),
         DeclareLaunchArgument('launch_lidar', default_value='true'),
         DeclareLaunchArgument('start_feedback', default_value='true'),
