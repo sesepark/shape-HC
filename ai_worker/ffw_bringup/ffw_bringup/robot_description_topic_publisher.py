@@ -11,7 +11,7 @@ class RobotDescriptionTopicPublisher(Node):
     def __init__(self):
         super().__init__('robot_description_topic_publisher')
         self.declare_parameter('robot_description', '')
-        self.declare_parameter('publish_period_sec', 1.0)
+        self.declare_parameter('publish_period_sec', 0.0)
 
         description = self.get_parameter('robot_description').value
         publish_period_sec = self.get_parameter('publish_period_sec').value
@@ -25,7 +25,9 @@ class RobotDescriptionTopicPublisher(Node):
         self.publisher = self.create_publisher(String, 'robot_description', qos)
         self.message = String(data=description)
 
-        self.timer = self.create_timer(float(publish_period_sec), self.publish_description)
+        self.timer = None
+        if float(publish_period_sec) > 0.0:
+            self.timer = self.create_timer(float(publish_period_sec), self.publish_description)
         self.publish_description()
         self.get_logger().info('Publishing robot_description topic')
 

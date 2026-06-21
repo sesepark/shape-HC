@@ -28,6 +28,8 @@ def profile_value(stable_low_latency, wired_360_default, precision_one_wrist, de
 
 def generate_launch_description():
     leader_controller_config = LaunchConfiguration('leader_controller_config')
+    leader_left_port = LaunchConfiguration('leader_left_port')
+    leader_right_port = LaunchConfiguration('leader_right_port')
     init_position = LaunchConfiguration('init_position')
     launch_lidar = LaunchConfiguration('launch_lidar')
     start_feedback = LaunchConfiguration('start_feedback')
@@ -85,6 +87,8 @@ def generate_launch_description():
             ])),
         launch_arguments={
             'leader_controller_config': leader_controller_config,
+            'leader_left_port': leader_left_port,
+            'leader_right_port': leader_right_port,
         }.items(),
         condition=IfCondition(start_leader),
     )
@@ -93,6 +97,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'leader_controller_config',
             default_value='ffw_lg2_leader_ai_hardware_controller.yaml'),
+        DeclareLaunchArgument('leader_left_port', default_value='/dev/left_leader'),
+        DeclareLaunchArgument('leader_right_port', default_value='/dev/right_leader'),
         DeclareLaunchArgument('init_position', default_value='true'),
         DeclareLaunchArgument('launch_lidar', default_value='true'),
         DeclareLaunchArgument('start_feedback', default_value='true'),

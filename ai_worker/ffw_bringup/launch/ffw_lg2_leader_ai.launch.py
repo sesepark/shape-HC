@@ -36,10 +36,22 @@ def generate_launch_description():
             default_value='ffw_lg2_leader_ai_hardware_controller.yaml',
             description='Controller YAML file for the LG2 Leader.',
         ),
+        DeclareLaunchArgument(
+            'leader_left_port',
+            default_value='/dev/left_leader',
+            description='Serial device for the left LG2 leader Dynamixel bus.',
+        ),
+        DeclareLaunchArgument(
+            'leader_right_port',
+            default_value='/dev/right_leader',
+            description='Serial device for the right LG2 leader Dynamixel bus.',
+        ),
     ]
 
     description_file = LaunchConfiguration('description_file')
     leader_controller_config = LaunchConfiguration('leader_controller_config')
+    leader_left_port = LaunchConfiguration('leader_left_port')
+    leader_right_port = LaunchConfiguration('leader_right_port')
     leader_namespace = 'leader'
     leader_robot_description_topic = '/leader/robot_description'
 
@@ -61,6 +73,10 @@ def generate_launch_description():
                 PathJoinSubstitution(
                     [FindPackageShare('ffw_description'), 'urdf', 'ffw_lg2_leader', description_file]
                 ),
+                ' ',
+                'leader_left_port:=', leader_left_port,
+                ' ',
+                'leader_right_port:=', leader_right_port,
             ]
         ),
         value_type=str,
@@ -72,7 +88,7 @@ def generate_launch_description():
         executable='robot_description_topic_publisher',
         namespace=leader_namespace,
         output='both',
-        parameters=[robot_description, {'publish_period_sec': 1.0}],
+        parameters=[robot_description, {'publish_period_sec': 0.0}],
         remappings=[
             ('robot_description', leader_robot_description_topic),
         ],
@@ -129,6 +145,8 @@ def generate_launch_description():
         declared_arguments + [
             LogInfo(msg=['LG2 Leader controller config: ', leader_controller_config]),
             LogInfo(msg=['LG2 Leader robot_description topic: ', leader_robot_description_topic]),
+            LogInfo(msg=['LG2 Leader left port: ', leader_left_port]),
+            LogInfo(msg=['LG2 Leader right port: ', leader_right_port]),
             robot_description_topic_publisher_node,
             robot_state_publisher_node,
             control_node,

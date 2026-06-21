@@ -4,6 +4,8 @@
   <xacro:arg name="use_mock_hardware" default="false" />
   <xacro:arg name="mock_sensor_commands" default="false" />
   <xacro:arg name="prefix" default="" />
+  <xacro:arg name="leader_left_port" default="/dev/left_leader" />
+  <xacro:arg name="leader_right_port" default="/dev/right_leader" />
 
   <xacro:include filename="$(find ffw_description)/urdf/common/leader/ffw_leader_body.urdf.xacro" />
 
@@ -38,11 +40,13 @@
   <xacro:ffw_lg2_leader_left_system
       use_sim="$(arg use_sim)"
       use_mock_hardware="$(arg use_mock_hardware)"
-      mock_sensor_commands="$(arg mock_sensor_commands)" />
+      mock_sensor_commands="$(arg mock_sensor_commands)"
+      port_name="$(arg leader_left_port)" />
 
   <xacro:ffw_lg2_leader_right_system
       use_sim="$(arg use_sim)"
       use_mock_hardware="$(arg use_mock_hardware)"
-      mock_sensor_commands="$(arg mock_sensor_commands)" />
+      mock_sensor_commands="$(arg mock_sensor_commands)"
+      port_name="$(arg leader_right_port)" />
 
 </robot>
