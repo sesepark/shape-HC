@@ -81,6 +81,21 @@ Visualization Manager:
       Max Value: 1
       Median window: 5
       Min Value: 0
+      Name: Operator Status
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /teleop/operator_status/compressed
+      Transport Hint: compressed
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
       Name: Head ZED Compressed
       Normalize Range: true
       Topic:
@@ -96,6 +111,21 @@ Visualization Manager:
       Max Value: 1
       Median window: 5
       Min Value: 0
+      Name: Left Wrist Color
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /teleop/wrist_left/color/compressed
+      Transport Hint: compressed
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
       Name: Left Wrist Overlay
       Normalize Range: true
       Topic:
@@ -104,6 +134,21 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /teleop/wrist_left/depth_overlay/compressed
+      Transport Hint: compressed
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Right Wrist Color
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /teleop/wrist_right/color/compressed
       Transport Hint: compressed
       Value: true
     - Class: rviz_default_plugins/Image

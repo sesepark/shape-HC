@@ -49,6 +49,7 @@ def generate_launch_description():
             'start_left_overlay': LaunchConfiguration('start_left_overlay'),
             'overlay_fps': LaunchConfiguration('overlay_fps'),
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
+            'publish_base_compressed': LaunchConfiguration('publish_base_compressed'),
             'record_practice_events': LaunchConfiguration('record_practice_events'),
             'practice_event_log_path': LaunchConfiguration('practice_event_log_path'),
             'table_reference_enabled': LaunchConfiguration('table_reference_enabled'),
@@ -84,6 +85,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_right_overlay', default_value='true'),
         DeclareLaunchArgument('overlay_fps', default_value='10.0'),
         DeclareLaunchArgument('publish_raw_overlay', default_value='false'),
+        DeclareLaunchArgument('publish_base_compressed', default_value='true'),
         DeclareLaunchArgument('record_practice_events', default_value='true'),
         DeclareLaunchArgument(
             'practice_event_log_path', default_value='~/teleop_practice_events.jsonl'),

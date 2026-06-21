@@ -19,8 +19,10 @@ class WristDepthOverlay(Node):
         self.declare_parameter('base_image_topic', '/camera_right/camera_right/color/image_raw')
         self.declare_parameter('overlay_topic', '/teleop/wrist_right/depth_overlay')
         self.declare_parameter('compressed_topic', '/teleop/wrist_right/depth_overlay/compressed')
+        self.declare_parameter('base_compressed_topic', '/teleop/wrist_right/color/compressed')
         self.declare_parameter('center_distance_topic', '/teleop/wrist_right/center_distance_m')
         self.declare_parameter('publish_raw_overlay', False)
+        self.declare_parameter('publish_base_compressed', True)
         self.declare_parameter('publish_fps', 10.0)
         self.declare_parameter('depth_scale', 0.001)
         self.declare_parameter('min_depth_m', 0.10)
@@ -41,9 +43,12 @@ class WristDepthOverlay(Node):
         self.base_image_topic = self.get_parameter('base_image_topic').value
         self.overlay_topic = self.get_parameter('overlay_topic').value
         self.compressed_topic = self.get_parameter('compressed_topic').value
+        self.base_compressed_topic = self.get_parameter('base_compressed_topic').value
         self.center_distance_topic = self.get_parameter('center_distance_topic').value
         self.publish_raw_overlay = self._as_bool(
             self.get_parameter('publish_raw_overlay').value)
+        self.publish_base_compressed = self._as_bool(
+            self.get_parameter('publish_base_compressed').value)
         self.publish_fps = max(float(self.get_parameter('publish_fps').value), 0.1)
         self.depth_scale = float(self.get_parameter('depth_scale').value)
         self.min_depth_m = float(self.get_parameter('min_depth_m').value)
@@ -69,6 +74,7 @@ class WristDepthOverlay(Node):
         self.last_warn_time = None
         self.latest_base_image = None
         self.latest_base_image_time = None
+        self.latest_base_image_header = None
 
         self.depth_sub = self.create_subscription(
             Image, self.depth_topic, self._depth_callback, qos_profile_sensor_data)
@@ -82,13 +88,18 @@ class WristDepthOverlay(Node):
                 Image, self.overlay_topic, qos_profile_sensor_data)
         self.compressed_pub = self.create_publisher(
             CompressedImage, self.compressed_topic, qos_profile_sensor_data)
+        self.base_compressed_pub = None
+        if self.publish_base_compressed and self.base_compressed_topic:
+            self.base_compressed_pub = self.create_publisher(
+                CompressedImage, self.base_compressed_topic, qos_profile_sensor_data)
         self.center_pub = self.create_publisher(
             Float32, self.center_distance_topic, qos_profile_sensor_data)
 
         self.get_logger().info(
             f'wrist depth overlay: depth={self.depth_topic}, base={self.base_image_topic or "none"} '
             f'-> raw={self.overlay_topic if self.publish_raw_overlay else "disabled"}, '
-            f'compressed={self.compressed_topic}')
+            f'compressed={self.compressed_topic}, '
+            f'base_compressed={self.base_compressed_topic if self.base_compressed_pub else "disabled"}')
 
     def _resolve_colormap(self, name):
         attr = f'COLORMAP_{name.strip().upper()}'
@@ -107,12 +118,16 @@ class WristDepthOverlay(Node):
             self.get_logger().warn(message)
             self.last_warn_time = now
 
+    def _has_subscribers(self, topic):
+        return bool(topic) and self.count_subscribers(topic) > 0
+
     def _base_image_callback(self, msg):
         base_image = self._image_to_bgr(msg)
         if base_image is None:
             return
         self.latest_base_image = base_image
         self.latest_base_image_time = self.get_clock().now()
+        self.latest_base_image_header = msg.header
 
     def _depth_callback(self, msg):
         now = self.get_clock().now()
@@ -126,13 +141,31 @@ class WristDepthOverlay(Node):
             return
 
         center_distance = self._center_distance(depth_m)
-        base_image = self._get_base_image(depth_m.shape, now)
-        overlay = self._make_overlay(depth_m, center_distance, base_image)
-
         self._publish_center_distance(center_distance)
-        if self.publish_raw_overlay:
+
+        needs_raw_overlay = self.publish_raw_overlay and self._has_subscribers(self.overlay_topic)
+        needs_compressed_overlay = self._has_subscribers(self.compressed_topic)
+        needs_base_compressed = (
+            self.base_compressed_pub is not None and
+            self._has_subscribers(self.base_compressed_topic) and
+            self._has_fresh_base_image(now)
+        )
+        if not (needs_raw_overlay or needs_compressed_overlay or needs_base_compressed):
+            return
+
+        base_image = self._get_base_image(depth_m.shape, now)
+
+        if needs_base_compressed:
+            self._publish_base_compressed_image(msg, base_image)
+
+        if not (needs_raw_overlay or needs_compressed_overlay):
+            return
+
+        overlay = self._make_overlay(depth_m, center_distance, base_image)
+        if needs_raw_overlay:
             self._publish_overlay_image(msg, overlay)
-        self._publish_compressed_image(msg, overlay)
+        if needs_compressed_overlay:
+            self._publish_compressed_image(msg, overlay)
 
     def _image_to_bgr(self, msg):
         encoding = msg.encoding.upper()
@@ -241,6 +274,12 @@ class WristDepthOverlay(Node):
             base = cv2.resize(base, (width, height), interpolation=cv2.INTER_LINEAR)
         return np.ascontiguousarray(base)
 
+    def _has_fresh_base_image(self, now):
+        if self.latest_base_image is None or self.latest_base_image_time is None:
+            return False
+        age_s = (now - self.latest_base_image_time).nanoseconds / 1e9
+        return self.base_image_timeout_s <= 0.0 or age_s <= self.base_image_timeout_s
+
     def _depth_grayscale_base(self, depth_shape):
         return np.zeros((depth_shape[0], depth_shape[1], 3), dtype=np.uint8)
 
@@ -333,16 +372,27 @@ class WristDepthOverlay(Node):
         self.overlay_pub.publish(msg)
 
     def _publish_compressed_image(self, source_msg, overlay):
+        self._publish_jpeg(
+            self.compressed_pub, source_msg.header, overlay, 'failed to JPEG-encode depth overlay')
+
+    def _publish_base_compressed_image(self, source_msg, image):
+        header = self.latest_base_image_header if self.latest_base_image_header else source_msg.header
+        self._publish_jpeg(
+            self.base_compressed_pub, header, image, 'failed to JPEG-encode base image')
+
+    def _publish_jpeg(self, publisher, header, image, warn_message):
+        if publisher is None:
+            return
         ok, encoded = cv2.imencode(
-            '.jpg', overlay, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality])
+            '.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality])
         if not ok:
-            self._warn_throttled('failed to JPEG-encode depth overlay')
+            self._warn_throttled(warn_message)
             return
         msg = CompressedImage()
-        msg.header = source_msg.header
+        msg.header = header
         msg.format = 'jpeg'
         msg.data = encoded.tobytes()
-        self.compressed_pub.publish(msg)
+        publisher.publish(msg)
 
 
 def main(args=None):

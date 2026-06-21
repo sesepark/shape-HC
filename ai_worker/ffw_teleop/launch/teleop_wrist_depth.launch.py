@@ -95,8 +95,10 @@ def generate_launch_description():
             'base_image_topic': LaunchConfiguration('base_image_topic'),
             'overlay_topic': LaunchConfiguration('overlay_topic'),
             'compressed_topic': LaunchConfiguration('compressed_topic'),
+            'base_compressed_topic': LaunchConfiguration('base_compressed_topic'),
             'center_distance_topic': LaunchConfiguration('center_distance_topic'),
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
+            'publish_base_compressed': LaunchConfiguration('publish_base_compressed'),
             'publish_fps': LaunchConfiguration('overlay_fps'),
             'depth_scale': LaunchConfiguration('depth_scale'),
             'min_depth_m': LaunchConfiguration('min_depth_m'),
@@ -126,8 +128,10 @@ def generate_launch_description():
             'base_image_topic': LaunchConfiguration('left_base_image_topic'),
             'overlay_topic': LaunchConfiguration('left_overlay_topic'),
             'compressed_topic': LaunchConfiguration('left_compressed_topic'),
+            'base_compressed_topic': LaunchConfiguration('left_base_compressed_topic'),
             'center_distance_topic': LaunchConfiguration('left_center_distance_topic'),
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
+            'publish_base_compressed': LaunchConfiguration('publish_base_compressed'),
             'publish_fps': LaunchConfiguration('overlay_fps'),
             'depth_scale': LaunchConfiguration('depth_scale'),
             'min_depth_m': LaunchConfiguration('min_depth_m'),
@@ -174,6 +178,8 @@ def generate_launch_description():
             'cmd_vel_topic': LaunchConfiguration('cmd_vel_topic'),
             'right_center_distance_topic': LaunchConfiguration('center_distance_topic'),
             'left_center_distance_topic': LaunchConfiguration('left_center_distance_topic'),
+            'status_panel_topic': LaunchConfiguration('status_panel_topic'),
+            'status_panel_jpeg_quality': LaunchConfiguration('status_panel_jpeg_quality'),
             'table_reference_enabled': LaunchConfiguration('table_reference_enabled'),
             'table_x_m': LaunchConfiguration('table_x_m'),
             'table_y_m': LaunchConfiguration('table_y_m'),
@@ -207,6 +213,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'compressed_topic', default_value='/teleop/wrist_right/depth_overlay/compressed'),
         DeclareLaunchArgument(
+            'base_compressed_topic', default_value='/teleop/wrist_right/color/compressed'),
+        DeclareLaunchArgument(
             'center_distance_topic', default_value='/teleop/wrist_right/center_distance_m'),
         DeclareLaunchArgument(
             'left_depth_topic', default_value='/camera_left/camera_left/depth/image_rect_raw'),
@@ -217,8 +225,11 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'left_compressed_topic', default_value='/teleop/wrist_left/depth_overlay/compressed'),
         DeclareLaunchArgument(
+            'left_base_compressed_topic', default_value='/teleop/wrist_left/color/compressed'),
+        DeclareLaunchArgument(
             'left_center_distance_topic', default_value='/teleop/wrist_left/center_distance_m'),
         DeclareLaunchArgument('publish_raw_overlay', default_value='false'),
+        DeclareLaunchArgument('publish_base_compressed', default_value='true'),
         DeclareLaunchArgument('overlay_fps', default_value='10.0'),
         DeclareLaunchArgument('depth_scale', default_value='0.001'),
         DeclareLaunchArgument('min_depth_m', default_value='0.10'),
@@ -260,6 +271,9 @@ def generate_launch_description():
         DeclareLaunchArgument('joint_state_topic', default_value='/joint_states'),
         DeclareLaunchArgument('odom_topic', default_value='/odom'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
+        DeclareLaunchArgument(
+            'status_panel_topic', default_value='/teleop/operator_status/compressed'),
+        DeclareLaunchArgument('status_panel_jpeg_quality', default_value='85'),
         DeclareLaunchArgument('table_reference_enabled', default_value='false'),
         DeclareLaunchArgument('table_x_m', default_value='0.0'),
         DeclareLaunchArgument('table_y_m', default_value='0.0'),

@@ -2,11 +2,14 @@ import json
 import math
 import os
 
+import cv2
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
+import numpy as np
 import rclpy
 from rclpy.node import Node
+from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool
 from std_msgs.msg import Float32
@@ -46,6 +49,8 @@ class AlignmentStatus(Node):
         self.declare_parameter('table_x_m', 0.0)
         self.declare_parameter('table_y_m', 0.0)
         self.declare_parameter('table_yaw_deg', 0.0)
+        self.declare_parameter('status_panel_topic', '/teleop/operator_status/compressed')
+        self.declare_parameter('status_panel_jpeg_quality', 85)
 
         self.pos_threshold_m = float(self.get_parameter('pos_threshold_m').value)
         self.ori_threshold_deg = float(self.get_parameter('ori_threshold_deg').value)
@@ -60,6 +65,9 @@ class AlignmentStatus(Node):
         self.table_x_m = float(self.get_parameter('table_x_m').value)
         self.table_y_m = float(self.get_parameter('table_y_m').value)
         self.table_yaw_rad = math.radians(float(self.get_parameter('table_yaw_deg').value))
+        self.status_panel_topic = str(self.get_parameter('status_panel_topic').value).strip()
+        self.status_panel_jpeg_quality = int(min(
+            max(int(self.get_parameter('status_panel_jpeg_quality').value), 1), 100))
 
         self.latest = {}
         self.latest_alignment_status = None
@@ -80,6 +88,10 @@ class AlignmentStatus(Node):
             Bool, self.get_parameter('ok_topic').value, 1)
         self.practice_event_pub = self.create_publisher(
             String, self.get_parameter('practice_event_output_topic').value, 10)
+        self.status_panel_pub = None
+        if self.status_panel_topic:
+            self.status_panel_pub = self.create_publisher(
+                CompressedImage, self.status_panel_topic, 1)
         self._init_practice_event_inputs()
         self.timer = self.create_timer(1.0 / publish_hz, self._publish_status)
 
@@ -174,6 +186,7 @@ class AlignmentStatus(Node):
 
         payload = {
             'stamp_sec': self.get_clock().now().nanoseconds / 1e9,
+            'mode': self.latest_mode,
             'thresholds': {
                 'pos_m': self.pos_threshold_m,
                 'ori_deg': self.ori_threshold_deg,
@@ -181,6 +194,8 @@ class AlignmentStatus(Node):
             'right': right,
             'left': left,
             'all_ok': all_ok,
+            'center_distance_m': self._center_distance_snapshot(),
+            'table_relative': self._table_relative_snapshot(),
         }
         self.latest_alignment_status = payload
 
@@ -191,6 +206,7 @@ class AlignmentStatus(Node):
         ok_msg = Bool()
         ok_msg.data = all_ok
         self.ok_pub.publish(ok_msg)
+        self._publish_status_panel(payload)
 
     def _record_practice_event(self, event, source):
         if not self.record_practice_events:
@@ -230,6 +246,93 @@ class AlignmentStatus(Node):
                 (now - self.last_event_warn_time).nanoseconds > 5_000_000_000):
             self.get_logger().warn(message)
             self.last_event_warn_time = now
+
+    def _publish_status_panel(self, payload):
+        if (
+            self.status_panel_pub is None or
+            self.count_subscribers(self.status_panel_topic) <= 0
+        ):
+            return
+
+        width = 560
+        height = 196
+        image = np.full((height, width, 3), (34, 36, 40), dtype=np.uint8)
+        mode = str(payload.get('mode') or 'unknown').strip()
+        mode_key = mode.lower()
+        if mode_key == 'swerve':
+            mode_label = 'BASE MOVE'
+            header_color = (32, 113, 239)
+        else:
+            mode_label = 'ZED/HEAD + LIFT'
+            header_color = (67, 161, 92)
+
+        cv2.rectangle(image, (0, 0), (width, 58), header_color, -1)
+        self._put_panel_text(
+            image, f'MODE: {mode.upper()}', (16, 38), 0.86, (255, 255, 255), 2)
+        self._put_panel_text(
+            image, mode_label, (350, 38), 0.70, (255, 255, 255), 2)
+
+        distances = payload.get('center_distance_m') or {}
+        left_distance = self._format_distance(distances.get('left'))
+        right_distance = self._format_distance(distances.get('right'))
+        self._put_panel_text(
+            image, f'L CENTER: {left_distance}', (16, 91), 0.58, (236, 241, 245), 1)
+        self._put_panel_text(
+            image, f'R CENTER: {right_distance}', (292, 91), 0.58, (236, 241, 245), 1)
+
+        left_align = self._format_arm_status(payload.get('left') or {})
+        right_align = self._format_arm_status(payload.get('right') or {})
+        self._put_panel_text(
+            image, f'L ALIGN: {left_align}', (16, 125), 0.58, (236, 241, 245), 1)
+        self._put_panel_text(
+            image, f'R ALIGN: {right_align}', (292, 125), 0.58, (236, 241, 245), 1)
+
+        table = payload.get('table_relative')
+        if table:
+            table_text = (
+                f'TABLE: {self._format_distance(table.get("distance_m"))} '
+                f'HEAD ERR: {self._format_angle(table.get("heading_to_table_error_deg"))}'
+            )
+        else:
+            table_text = 'TABLE: --'
+        self._put_panel_text(image, table_text, (16, 162), 0.56, (203, 211, 218), 1)
+
+        ok, encoded = cv2.imencode(
+            '.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), self.status_panel_jpeg_quality])
+        if not ok:
+            self._warn_event_throttled('failed to JPEG-encode operator status panel')
+            return
+        msg = CompressedImage()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'teleop_operator_status'
+        msg.format = 'jpeg'
+        msg.data = encoded.tobytes()
+        self.status_panel_pub.publish(msg)
+
+    def _put_panel_text(self, image, text, origin, scale, color, thickness):
+        cv2.putText(
+            image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,
+            (0, 0, 0), thickness + 2, cv2.LINE_AA)
+        cv2.putText(
+            image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,
+            color, thickness, cv2.LINE_AA)
+
+    def _format_distance(self, value):
+        if value is None:
+            return '-- m'
+        return f'{float(value):.2f} m'
+
+    def _format_angle(self, value):
+        if value is None:
+            return '-- deg'
+        return f'{float(value):+.1f} deg'
+
+    def _format_arm_status(self, status):
+        if not status.get('available'):
+            return '--'
+        if not status.get('fresh'):
+            return 'STALE'
+        return 'OK' if status.get('ok') else 'CHECK'
 
     def _joint_state_snapshot(self):
         msg = self.latest_joint_state
