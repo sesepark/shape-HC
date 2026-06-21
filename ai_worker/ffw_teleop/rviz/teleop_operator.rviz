@@ -88,7 +88,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /teleop/operator_status/compressed
+        Value: /teleop/operator_status
       Transport Hint: compressed
       Value: true
     - Class: rviz_default_plugins/Image
@@ -103,7 +103,22 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /teleop/mission_panel/compressed
+        Value: /teleop/mission_panel
+      Transport Hint: compressed
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Bandwidth Monitor
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /teleop/bandwidth_monitor
       Transport Hint: compressed
       Value: true
     - Class: rviz_default_plugins/Image
@@ -118,7 +133,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /teleop/zed/depth_assist/compressed
+        Value: /teleop/zed/depth_assist
       Transport Hint: compressed
       Value: true
     - Class: rviz_default_plugins/Image
@@ -133,7 +148,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /teleop/wrist_left/depth_assist/compressed
+        Value: /teleop/wrist_left/depth_assist
       Transport Hint: compressed
       Value: true
     - Class: rviz_default_plugins/Image
@@ -148,7 +163,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /teleop/wrist_left/depth_overlay/compressed
+        Value: /teleop/wrist_left/depth_overlay
       Transport Hint: compressed
       Value: false
     - Class: rviz_default_plugins/Image
@@ -163,7 +178,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /teleop/wrist_right/depth_assist/compressed
+        Value: /teleop/wrist_right/depth_assist
       Transport Hint: compressed
       Value: true
     - Class: rviz_default_plugins/Image
@@ -178,7 +193,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /teleop/wrist_right/depth_overlay/compressed
+        Value: /teleop/wrist_right/depth_overlay
       Transport Hint: compressed
       Value: false
   Enabled: true

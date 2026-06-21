@@ -41,6 +41,7 @@ setup(
             'right_wrist_depth_overlay = ffw_teleop.right_wrist_depth_overlay:main',
             'zed_depth_assist = ffw_teleop.zed_depth_assist:main',
             'teleop_alignment_status = ffw_teleop.alignment_status:main',
+            'teleop_bandwidth_monitor = ffw_teleop.teleop_bandwidth_monitor:main',
             'mission_mode_manager = ffw_teleop.mission_mode_manager:main',
             'operator_layout_manager = ffw_teleop.operator_layout_manager:main',
         ],

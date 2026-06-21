@@ -29,6 +29,8 @@ class ZedDepthAssist(Node):
         ])
         self.declare_parameter('assist_topic', '/teleop/zed/depth_assist/compressed')
         self.declare_parameter('metrics_topic', '/teleop/zed/depth_metrics')
+        self.declare_parameter('stream_stats_topic', '/teleop/stream_stats')
+        self.declare_parameter('stream_stats_name', 'zed')
         self.declare_parameter('publish_fps', 10.0)
         self.declare_parameter('jpeg_quality', 75)
         self.declare_parameter('depth_scale', 0.001)
@@ -86,6 +88,9 @@ class ZedDepthAssist(Node):
         ])
         self.assist_topic = str(self.get_parameter('assist_topic').value).strip()
         self.metrics_topic = str(self.get_parameter('metrics_topic').value).strip()
+        self.stream_stats_topic = str(self.get_parameter('stream_stats_topic').value).strip()
+        self.stream_stats_name = str(
+            self.get_parameter('stream_stats_name').value).strip() or 'zed'
         self.publish_fps = max(float(self.get_parameter('publish_fps').value), 0.1)
         self.jpeg_quality = int(np.clip(int(self.get_parameter('jpeg_quality').value), 1, 100))
         self.depth_scale = float(self.get_parameter('depth_scale').value)
@@ -156,11 +161,15 @@ class ZedDepthAssist(Node):
         self.assist_pub = self.create_publisher(
             CompressedImage, self.assist_topic, qos_profile_sensor_data)
         self.metrics_pub = self.create_publisher(String, self.metrics_topic, 10)
+        self.stream_stats_pub = None
+        if self.stream_stats_topic:
+            self.stream_stats_pub = self.create_publisher(String, self.stream_stats_topic, 10)
 
         self.get_logger().info(
             f'ZED arm-relative depth assist: depth={self.depth_topic}, '
             f'base={self.base_image_topic}, info={self.camera_info_topics} '
-            f'-> {self.assist_topic} at {self.publish_fps:.1f} fps')
+            f'-> {self.assist_topic} at {self.publish_fps:.1f} fps, '
+            f'stats={self.stream_stats_topic or "disabled"}')
 
     def _string_list(self, value):
         if value is None:
@@ -867,6 +876,22 @@ class ZedDepthAssist(Node):
         msg.format = 'jpeg'
         msg.data = encoded.tobytes()
         self.assist_pub.publish(msg)
+        self._publish_stream_stats(image, len(msg.data))
+
+    def _publish_stream_stats(self, image, byte_count):
+        if self.stream_stats_pub is None:
+            return
+        msg = String()
+        msg.data = json.dumps({
+            'stamp_sec': self.get_clock().now().nanoseconds / 1e9,
+            'name': self.stream_stats_name,
+            'topic': self.assist_topic,
+            'bytes': int(byte_count),
+            'width': int(image.shape[1]),
+            'height': int(image.shape[0]),
+            'jpeg_quality': int(self.jpeg_quality),
+        }, sort_keys=True)
+        self.stream_stats_pub.publish(msg)
 
 
 def main(args=None):

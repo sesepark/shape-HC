@@ -60,6 +60,7 @@ def generate_launch_description():
     start_overlay = LaunchConfiguration('start_overlay')
     start_left_overlay = LaunchConfiguration('start_left_overlay')
     start_alignment_monitor = LaunchConfiguration('start_alignment_monitor')
+    start_bandwidth_monitor = LaunchConfiguration('start_bandwidth_monitor')
 
     zed_camera_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -115,6 +116,8 @@ def generate_launch_description():
             'camera_info_topic': LaunchConfiguration('zed_camera_info_topic'),
             'assist_topic': LaunchConfiguration('zed_assist_topic'),
             'metrics_topic': LaunchConfiguration('zed_metrics_topic'),
+            'stream_stats_topic': LaunchConfiguration('stream_stats_topic'),
+            'stream_stats_name': 'zed',
             'publish_fps': LaunchConfiguration('zed_assist_fps'),
             'jpeg_quality': LaunchConfiguration('zed_assist_jpeg_quality'),
             'min_depth_m': LaunchConfiguration('zed_min_depth_m'),
@@ -163,6 +166,8 @@ def generate_launch_description():
             'base_compressed_topic': LaunchConfiguration('base_compressed_topic'),
             'center_distance_topic': LaunchConfiguration('center_distance_topic'),
             'metrics_topic': LaunchConfiguration('metrics_topic'),
+            'stream_stats_topic': LaunchConfiguration('stream_stats_topic'),
+            'stream_stats_name': 'wrist_right',
             'side': 'right',
             'feedback_visual_mode': LaunchConfiguration('feedback_visual_mode'),
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
@@ -218,6 +223,8 @@ def generate_launch_description():
             'base_compressed_topic': LaunchConfiguration('left_base_compressed_topic'),
             'center_distance_topic': LaunchConfiguration('left_center_distance_topic'),
             'metrics_topic': LaunchConfiguration('left_metrics_topic'),
+            'stream_stats_topic': LaunchConfiguration('stream_stats_topic'),
+            'stream_stats_name': 'wrist_left',
             'side': 'left',
             'feedback_visual_mode': LaunchConfiguration('feedback_visual_mode'),
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
@@ -298,6 +305,21 @@ def generate_launch_description():
         }],
     )
 
+    bandwidth_monitor_node = Node(
+        package='ffw_teleop',
+        executable='teleop_bandwidth_monitor',
+        name='teleop_bandwidth_monitor',
+        output='screen',
+        condition=IfCondition(start_bandwidth_monitor),
+        parameters=[{
+            'stream_stats_topic': LaunchConfiguration('stream_stats_topic'),
+            'monitor_topic': LaunchConfiguration('bandwidth_monitor_topic'),
+            'panel_topic': LaunchConfiguration('bandwidth_panel_topic'),
+            'available_mbps': LaunchConfiguration('bandwidth_available_mbps'),
+            'publish_hz': LaunchConfiguration('bandwidth_monitor_publish_hz'),
+        }],
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument('teleop_feedback_profile', default_value='wired_360_default'),
         DeclareLaunchArgument('start_zed', default_value='true'),
@@ -307,6 +329,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_overlay', default_value='true'),
         DeclareLaunchArgument('start_left_overlay', default_value='true'),
         DeclareLaunchArgument('start_alignment_monitor', default_value='true'),
+        DeclareLaunchArgument('start_bandwidth_monitor', default_value='true'),
         DeclareLaunchArgument('start_zed_depth_assist', default_value='true'),
         DeclareLaunchArgument('zed_camera_model', default_value='zedm'),
         DeclareLaunchArgument('zed_camera_name', default_value='zed'),
@@ -327,6 +350,8 @@ def generate_launch_description():
             'zed_assist_topic', default_value='/teleop/zed/depth_assist/compressed'),
         DeclareLaunchArgument(
             'zed_metrics_topic', default_value='/teleop/zed/depth_metrics'),
+        DeclareLaunchArgument(
+            'stream_stats_topic', default_value='/teleop/stream_stats'),
         DeclareLaunchArgument('zed_assist_fps', default_value='10.0'),
         DeclareLaunchArgument('zed_assist_jpeg_quality', default_value='75'),
         DeclareLaunchArgument('zed_min_depth_m', default_value='0.15'),
@@ -481,6 +506,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'status_panel_topic', default_value='/teleop/operator_status/compressed'),
         DeclareLaunchArgument('status_panel_jpeg_quality', default_value='85'),
+        DeclareLaunchArgument(
+            'bandwidth_monitor_topic', default_value='/teleop/bandwidth_monitor'),
+        DeclareLaunchArgument(
+            'bandwidth_panel_topic', default_value='/teleop/bandwidth_monitor/compressed'),
+        DeclareLaunchArgument('bandwidth_available_mbps', default_value='350.0'),
+        DeclareLaunchArgument('bandwidth_monitor_publish_hz', default_value='2.0'),
         DeclareLaunchArgument('table_reference_enabled', default_value='false'),
         DeclareLaunchArgument('table_x_m', default_value='0.0'),
         DeclareLaunchArgument('table_y_m', default_value='0.0'),
@@ -492,4 +523,5 @@ def generate_launch_description():
         right_overlay_node,
         left_overlay_node,
         alignment_node,
+        bandwidth_monitor_node,
     ])

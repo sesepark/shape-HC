@@ -25,6 +25,8 @@ class WristDepthOverlay(Node):
         self.declare_parameter('base_compressed_topic', '/teleop/wrist_right/color/compressed')
         self.declare_parameter('center_distance_topic', '/teleop/wrist_right/center_distance_m')
         self.declare_parameter('metrics_topic', '/teleop/wrist_right/depth_metrics')
+        self.declare_parameter('stream_stats_topic', '/teleop/stream_stats')
+        self.declare_parameter('stream_stats_name', '')
         self.declare_parameter('side', 'right')
         self.declare_parameter('feedback_visual_mode', 'assist')
         self.declare_parameter('publish_raw_overlay', False)
@@ -71,7 +73,11 @@ class WristDepthOverlay(Node):
         self.base_compressed_topic = self.get_parameter('base_compressed_topic').value
         self.center_distance_topic = self.get_parameter('center_distance_topic').value
         self.metrics_topic = self.get_parameter('metrics_topic').value
+        self.stream_stats_topic = str(self.get_parameter('stream_stats_topic').value).strip()
         self.side = str(self.get_parameter('side').value).strip() or 'unknown'
+        self.stream_stats_name = str(self.get_parameter('stream_stats_name').value).strip()
+        if not self.stream_stats_name:
+            self.stream_stats_name = f'wrist_{self.side}'
         self.feedback_visual_mode = str(
             self.get_parameter('feedback_visual_mode').value).strip().lower()
         if self.feedback_visual_mode not in ('assist', 'overlay', 'off'):
@@ -159,6 +165,9 @@ class WristDepthOverlay(Node):
         self.metrics_pub = None
         if self.publish_metrics and self.metrics_topic:
             self.metrics_pub = self.create_publisher(String, self.metrics_topic, 10)
+        self.stream_stats_pub = None
+        if self.stream_stats_topic:
+            self.stream_stats_pub = self.create_publisher(String, self.stream_stats_topic, 10)
 
         self.get_logger().info(
             f'wrist depth feedback({self.side}): mode={self.feedback_visual_mode}, '
@@ -166,6 +175,7 @@ class WristDepthOverlay(Node):
             f'-> raw={self.overlay_topic if self.publish_raw_overlay else "disabled"}, '
             f'overlay_compressed={self.compressed_topic}, assist={self.assist_topic}, '
             f'base_compressed={self.base_compressed_topic if self.base_compressed_pub else "disabled"}, '
+            f'stats={self.stream_stats_topic or "disabled"} '
             f'view={self.view_preset} rot={self.view_rotate_deg:.0f}deg '
             f'flip_h={self.view_flip_horizontal} flip_v={self.view_flip_vertical} '
             f'gripper_target_offset=({self.gripper_target_offset_x_px}, '
@@ -864,14 +874,21 @@ class WristDepthOverlay(Node):
 
     def _publish_assist_image(self, source_msg, image):
         self._publish_jpeg(
-            self.assist_pub, source_msg.header, image, 'failed to JPEG-encode depth assist')
+            self.assist_pub,
+            source_msg.header,
+            image,
+            'failed to JPEG-encode depth assist',
+            self.stream_stats_name,
+            self.assist_topic,
+        )
 
     def _publish_base_compressed_image(self, source_msg, image):
         header = self.latest_base_image_header if self.latest_base_image_header else source_msg.header
         self._publish_jpeg(
             self.base_compressed_pub, header, image, 'failed to JPEG-encode base image')
 
-    def _publish_jpeg(self, publisher, header, image, warn_message):
+    def _publish_jpeg(self, publisher, header, image, warn_message,
+                      stats_name=None, published_topic=''):
         if publisher is None:
             return
         ok, encoded = cv2.imencode(
@@ -884,6 +901,23 @@ class WristDepthOverlay(Node):
         msg.format = 'jpeg'
         msg.data = encoded.tobytes()
         publisher.publish(msg)
+        if stats_name:
+            self._publish_stream_stats(stats_name, published_topic, image, len(msg.data))
+
+    def _publish_stream_stats(self, name, topic, image, byte_count):
+        if self.stream_stats_pub is None:
+            return
+        msg = String()
+        msg.data = json.dumps({
+            'stamp_sec': self.get_clock().now().nanoseconds / 1e9,
+            'name': str(name),
+            'topic': str(topic),
+            'bytes': int(byte_count),
+            'width': int(image.shape[1]),
+            'height': int(image.shape[0]),
+            'jpeg_quality': int(self.jpeg_quality),
+        }, sort_keys=True)
+        self.stream_stats_pub.publish(msg)
 
 
 def main(args=None):

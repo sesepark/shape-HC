@@ -69,6 +69,9 @@ def generate_launch_description():
             'overlay_fps': LaunchConfiguration('overlay_fps'),
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
             'publish_base_compressed': LaunchConfiguration('publish_base_compressed'),
+            'start_bandwidth_monitor': LaunchConfiguration('start_bandwidth_monitor'),
+            'bandwidth_available_mbps': LaunchConfiguration('bandwidth_available_mbps'),
+            'bandwidth_panel_topic': LaunchConfiguration('bandwidth_panel_topic'),
             'record_practice_events': LaunchConfiguration('record_practice_events'),
             'practice_event_log_path': LaunchConfiguration('practice_event_log_path'),
             'table_reference_enabled': LaunchConfiguration('table_reference_enabled'),
@@ -120,6 +123,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'publish_base_compressed',
             default_value=profile_value('false', 'false', 'false', 'true')),
+        DeclareLaunchArgument('start_bandwidth_monitor', default_value='true'),
+        DeclareLaunchArgument('bandwidth_available_mbps', default_value='350.0'),
+        DeclareLaunchArgument(
+            'bandwidth_panel_topic', default_value='/teleop/bandwidth_monitor/compressed'),
         DeclareLaunchArgument('record_practice_events', default_value='true'),
         DeclareLaunchArgument(
             'practice_event_log_path', default_value='~/teleop_practice_events.jsonl'),

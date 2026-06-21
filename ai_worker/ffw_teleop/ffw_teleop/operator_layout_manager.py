@@ -335,8 +335,8 @@ class OperatorLayoutManager(Node):
                 if match is None:
                     next_pending.append(window)
                     continue
-                self._apply_geometry(wmctrl, match, window)
-                restored_count += 1
+                if self._apply_geometry(wmctrl, match, window):
+                    restored_count += 1
             pending = next_pending
             if pending:
                 time.sleep(self.retry_interval_s)
@@ -364,10 +364,12 @@ class OperatorLayoutManager(Node):
             )
 
     def _apply_geometry(self, wmctrl, match, target):
-        x = int(target.get('x', 0))
-        y = int(target.get('y', 0))
-        width = int(target.get('width', 800))
-        height = int(target.get('height', 600))
+        geometry = self._safe_geometry(wmctrl, target)
+        if geometry is None:
+            self.get_logger().warn(
+                f'skipping invalid saved geometry for {target.get("name", "window")}')
+            return False
+        x, y, width, height = geometry
         command_remove_max = [
             wmctrl, '-ir', match['id'], '-b', 'remove,maximized_vert,maximized_horz']
         command_geometry = [
@@ -376,9 +378,68 @@ class OperatorLayoutManager(Node):
             f'restore {target.get("name", "window")} -> '
             f'{x},{y} {width}x{height} ({match["title"]})')
         if self.dry_run:
-            return
+            return True
         subprocess.run(command_remove_max, check=False)
         subprocess.run(command_geometry, check=False)
+        return True
+
+    def _safe_geometry(self, wmctrl, target):
+        try:
+            x = int(target.get('x', 0))
+            y = int(target.get('y', 0))
+            width = int(target.get('width', 800))
+            height = int(target.get('height', 600))
+        except (TypeError, ValueError):
+            return None
+
+        width = max(width, 240)
+        height = max(height, 180)
+        desktop = self._desktop_geometry(wmctrl)
+        if desktop is None:
+            return x, y, width, height
+
+        desk_x, desk_y, desk_width, desk_height = desktop
+        if desk_width < 240 or desk_height < 180:
+            return x, y, width, height
+        width = min(width, desk_width)
+        height = min(height, desk_height)
+        x_max = desk_x + max(desk_width - width, 0)
+        y_max = desk_y + max(desk_height - height, 0)
+        x = min(max(x, desk_x), x_max)
+        y = min(max(y, desk_y), y_max)
+        return x, y, width, height
+
+    def _desktop_geometry(self, wmctrl):
+        proc = subprocess.run(
+            [wmctrl, '-d'],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if proc.returncode != 0:
+            return None
+        for line in proc.stdout.splitlines():
+            if '*' not in line:
+                continue
+            parts = line.split()
+            for index, part in enumerate(parts):
+                if part == 'WA:' and index + 2 < len(parts):
+                    xy = self._parse_pair(parts[index + 1], ',')
+                    size = self._parse_pair(parts[index + 2], 'x')
+                    if xy and size:
+                        return xy[0], xy[1], size[0], size[1]
+                if part == 'DG:' and index + 1 < len(parts):
+                    size = self._parse_pair(parts[index + 1], 'x')
+                    if size:
+                        return 0, 0, size[0], size[1]
+        return None
+
+    def _parse_pair(self, value, separator):
+        try:
+            left, right = str(value).split(separator, 1)
+            return int(left), int(right)
+        except (TypeError, ValueError):
+            return None
 
     def _print_diagnostics(self, wmctrl):
         windows = self._list_windows(wmctrl)
