@@ -184,10 +184,10 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('start_zed', default_value='true'),
         DeclareLaunchArgument('start_wrist_cameras', default_value='true'),
-        DeclareLaunchArgument('start_left_wrist', default_value='false'),
+        DeclareLaunchArgument('start_left_wrist', default_value='true'),
         DeclareLaunchArgument('start_right_wrist', default_value='true'),
         DeclareLaunchArgument('start_overlay', default_value='true'),
-        DeclareLaunchArgument('start_left_overlay', default_value='false'),
+        DeclareLaunchArgument('start_left_overlay', default_value='true'),
         DeclareLaunchArgument('start_alignment_monitor', default_value='true'),
         DeclareLaunchArgument('zed_camera_model', default_value='zedm'),
         DeclareLaunchArgument('zed_camera_name', default_value='zed'),
