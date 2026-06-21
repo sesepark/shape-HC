@@ -88,7 +88,7 @@ def generate_launch_description():
         executable='robot_description_topic_publisher',
         namespace=leader_namespace,
         output='both',
-        parameters=[robot_description, {'publish_period_sec': 1.0}],
+        parameters=[robot_description, {'publish_period_sec': 0.0}],
         remappings=[
             ('robot_description', leader_robot_description_topic),
         ],
