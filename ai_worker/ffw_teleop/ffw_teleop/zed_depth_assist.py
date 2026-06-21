@@ -14,6 +14,8 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import String
 import tf2_ros
 
+from ffw_teleop.text_render import draw_text_bgr
+
 
 class ZedDepthAssist(Node):
 
@@ -23,6 +25,10 @@ class ZedDepthAssist(Node):
         self.declare_parameter('depth_topic', '/zed/zed_node/depth/depth_registered')
         self.declare_parameter('base_image_topic', '/zed/zed_node/left/image_rect_color')
         self.declare_parameter('camera_info_topic', '/zed/zed_node/left/camera_info')
+        self.declare_parameter('camera_info_fallback_topics', [
+            '/zed/zed_node/left/camera_info',
+            '/zed/zed_node/rgb/camera_info',
+        ])
         self.declare_parameter('assist_topic', '/teleop/zed/depth_assist/compressed')
         self.declare_parameter('metrics_topic', '/teleop/zed/depth_metrics')
         self.declare_parameter('publish_fps', 10.0)
@@ -40,6 +46,16 @@ class ZedDepthAssist(Node):
         self.declare_parameter('tf_lookup_timeout_s', 0.005)
         self.declare_parameter('left_hand_frame', 'end_effector_l_link')
         self.declare_parameter('right_hand_frame', 'end_effector_r_link')
+        self.declare_parameter('left_hand_frame_fallbacks', [
+            'end_effector_l_link',
+            'gripper_l_rh_p12_rn_base',
+            'arm_l_link7',
+        ])
+        self.declare_parameter('right_hand_frame_fallbacks', [
+            'end_effector_r_link',
+            'gripper_r_rh_p12_rn_base',
+            'arm_r_link7',
+        ])
         self.declare_parameter('left_arm_links', [
             'arm_l_link4',
             'arm_l_link5',
@@ -64,6 +80,12 @@ class ZedDepthAssist(Node):
         self.depth_topic = str(self.get_parameter('depth_topic').value).strip()
         self.base_image_topic = str(self.get_parameter('base_image_topic').value).strip()
         self.camera_info_topic = str(self.get_parameter('camera_info_topic').value).strip()
+        self.camera_info_topics = self._unique_strings([
+            self.camera_info_topic,
+            *self._string_list(self.get_parameter('camera_info_fallback_topics').value),
+            '/zed/zed_node/left/camera_info',
+            '/zed/zed_node/rgb/camera_info',
+        ])
         self.assist_topic = str(self.get_parameter('assist_topic').value).strip()
         self.metrics_topic = str(self.get_parameter('metrics_topic').value).strip()
         self.publish_fps = max(float(self.get_parameter('publish_fps').value), 0.1)
@@ -83,6 +105,14 @@ class ZedDepthAssist(Node):
         self.tf_lookup_timeout = Duration(nanoseconds=int(tf_timeout_s * 1_000_000_000))
         self.left_hand_frame = str(self.get_parameter('left_hand_frame').value).strip()
         self.right_hand_frame = str(self.get_parameter('right_hand_frame').value).strip()
+        self.left_hand_frames = self._unique_strings([
+            self.left_hand_frame,
+            *self._string_list(self.get_parameter('left_hand_frame_fallbacks').value),
+        ])
+        self.right_hand_frames = self._unique_strings([
+            self.right_hand_frame,
+            *self._string_list(self.get_parameter('right_hand_frame_fallbacks').value),
+        ])
         self.left_arm_links = [
             str(frame).strip() for frame in self.get_parameter('left_arm_links').value
             if str(frame).strip()
@@ -107,6 +137,7 @@ class ZedDepthAssist(Node):
         self.latest_base_image_header = None
         self.latest_camera_info = None
         self.latest_intrinsics = None
+        self.latest_camera_info_topic = None
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -115,16 +146,41 @@ class ZedDepthAssist(Node):
             Image, self.depth_topic, self._depth_callback, qos_profile_sensor_data)
         self.base_sub = self.create_subscription(
             Image, self.base_image_topic, self._base_image_callback, qos_profile_sensor_data)
-        self.info_sub = self.create_subscription(
-            CameraInfo, self.camera_info_topic, self._camera_info_callback, qos_profile_sensor_data)
+        self.info_subs = [
+            self.create_subscription(
+                CameraInfo,
+                topic,
+                lambda msg, topic=topic: self._camera_info_callback(msg, topic),
+                qos_profile_sensor_data,
+            )
+            for topic in self.camera_info_topics
+        ]
         self.assist_pub = self.create_publisher(
             CompressedImage, self.assist_topic, qos_profile_sensor_data)
         self.metrics_pub = self.create_publisher(String, self.metrics_topic, 10)
 
         self.get_logger().info(
             f'ZED arm-relative depth assist: depth={self.depth_topic}, '
-            f'base={self.base_image_topic}, info={self.camera_info_topic} '
+            f'base={self.base_image_topic}, info={self.camera_info_topics} '
             f'-> {self.assist_topic} at {self.publish_fps:.1f} fps')
+
+    def _string_list(self, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        try:
+            return [str(item) for item in value]
+        except TypeError:
+            return [str(value)]
+
+    def _unique_strings(self, values):
+        result = []
+        for value in values:
+            text = str(value).strip()
+            if text and text not in result:
+                result.append(text)
+        return result
 
     def _as_bool(self, value):
         if isinstance(value, bool):
@@ -147,8 +203,9 @@ class ZedDepthAssist(Node):
         self.latest_base_image_time = self.get_clock().now()
         self.latest_base_image_header = msg.header
 
-    def _camera_info_callback(self, msg):
+    def _camera_info_callback(self, msg, topic):
         self.latest_camera_info = msg
+        self.latest_camera_info_topic = topic
         self.latest_intrinsics = {
             'frame_id': msg.header.frame_id,
             'width': int(msg.width),
@@ -321,6 +378,13 @@ class ZedDepthAssist(Node):
         translation = transform.transform.translation
         return np.array([translation.x, translation.y, translation.z], dtype=np.float32)
 
+    def _lookup_first_link_point(self, camera_frame, source_frames, stamp):
+        for source_frame in source_frames:
+            point = self._lookup_link_point(camera_frame, source_frame, stamp)
+            if point is not None:
+                return source_frame, point
+        return '', None
+
     def _project_point(self, point, intrinsics):
         if point is None or not np.all(np.isfinite(point)) or float(point[2]) <= 0.02:
             return None
@@ -340,21 +404,21 @@ class ZedDepthAssist(Node):
         sides = {
             'left': {
                 'label': 'L',
-                'hand_frame': self.left_hand_frame,
+                'hand_frames': self.left_hand_frames,
                 'links': self.left_arm_links,
                 'color': (70, 220, 120),
             },
             'right': {
                 'label': 'R',
-                'hand_frame': self.right_hand_frame,
+                'hand_frames': self.right_hand_frames,
                 'links': self.right_arm_links,
                 'color': (255, 110, 220),
             },
         }
         projections = {}
         for side, config in sides.items():
-            hand_point = self._lookup_link_point(
-                camera_frame, config['hand_frame'], depth_msg.header.stamp)
+            hand_frame, hand_point = self._lookup_first_link_point(
+                camera_frame, config['hand_frames'], depth_msg.header.stamp)
             hand_pixel = self._project_point(hand_point, intrinsics)
             link_draw = []
             if hand_point is not None:
@@ -370,7 +434,8 @@ class ZedDepthAssist(Node):
             projections[side] = {
                 'label': config['label'],
                 'color': config['color'],
-                'hand_frame': config['hand_frame'],
+                'hand_frame': hand_frame,
+                'hand_frame_candidates': config['hand_frames'],
                 'hand_point': hand_point,
                 'hand_pixel': hand_pixel,
                 'hand_visible': self._point_in_image(hand_pixel, depth_shape),
@@ -409,7 +474,7 @@ class ZedDepthAssist(Node):
 
     def _objects_near_hand(self, side_projection, depth_m, valid, robot_mask, intrinsics):
         if not side_projection.get('hand_visible') or side_projection.get('hand_point') is None:
-            return [], None
+            return [], None, 0
 
         height, width = depth_m.shape[:2]
         hx, hy = side_projection['hand_pixel']
@@ -417,11 +482,11 @@ class ZedDepthAssist(Node):
         cv2.circle(roi_mask, (hx, hy), self.hand_roi_radius_px, 255, -1)
         candidate = (roi_mask > 0) & valid & (~robot_mask)
         if not np.any(candidate):
-            return [], candidate
+            return [], candidate, 0
 
         xs, ys, points = self._pixel_points_for_mask(depth_m, candidate, intrinsics)
         if points is None:
-            return [], candidate
+            return [], candidate, 0
 
         hand_point = side_projection['hand_point'].astype(np.float32, copy=False)
         distances = np.linalg.norm(points - hand_point.reshape(1, 3), axis=1)
@@ -429,7 +494,7 @@ class ZedDepthAssist(Node):
         near_mask = np.zeros(depth_m.shape, dtype=np.uint8)
         near_mask[ys[near_index], xs[near_index]] = 255
         if not np.any(near_mask):
-            return [], near_mask > 0
+            return [], near_mask > 0, 0
 
         kernel = np.ones((3, 3), np.uint8)
         near_mask = cv2.morphologyEx(near_mask, cv2.MORPH_OPEN, kernel)
@@ -438,6 +503,7 @@ class ZedDepthAssist(Node):
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
             near_mask, connectivity=8)
         objects = []
+        component_count = max(int(num_labels) - 1, 0)
         for label_id in range(1, num_labels):
             area = float(stats[label_id, cv2.CC_STAT_AREA])
             if area < self.component_min_area_px:
@@ -476,7 +542,7 @@ class ZedDepthAssist(Node):
             float('inf') if item['distance_3d_m'] is None else item['distance_3d_m'],
             abs(float('inf') if item['depth_delta_m'] is None else item['depth_delta_m']),
         ))
-        return objects[:self.max_objects_per_hand], near_mask > 0
+        return objects[:self.max_objects_per_hand], near_mask > 0, component_count
 
     def _compare_hands(self, left_depth, right_depth):
         if left_depth is None or right_depth is None:
@@ -501,6 +567,7 @@ class ZedDepthAssist(Node):
             return {
                 'stamp_sec': self._clean_float(self._stamp_sec(depth_msg.header.stamp), 6),
                 'status': 'waiting_camera_info',
+                'camera_info_topics': self.camera_info_topics,
             }, {
                 'status_text': 'WAITING CAMERA_INFO',
                 'projections': {},
@@ -534,7 +601,7 @@ class ZedDepthAssist(Node):
         hands = {}
         draw_objects = {}
         for side, projection in projections.items():
-            objects, object_mask = self._objects_near_hand(
+            objects, object_mask, object_candidate_count = self._objects_near_hand(
                 projection, depth_m, valid, robot_mask, intrinsics)
             nearest = objects[0] if objects else None
             hand_point = projection.get('hand_point')
@@ -546,10 +613,12 @@ class ZedDepthAssist(Node):
             hands[side] = {
                 'valid': hand_valid,
                 'frame': projection.get('hand_frame'),
+                'frame_candidates': projection.get('hand_frame_candidates'),
                 'pixel': self._pixel_dict(projection.get('hand_pixel')),
                 'visible': bool(projection.get('hand_visible', False)),
                 'hand_depth_m': hand_depth,
                 'hand_point_m': [self._clean_float(value) for value in hand_point] if hand_point is not None else None,
+                'object_candidate_count': object_candidate_count,
                 'nearest_object': self._object_public(nearest),
                 'objects': [self._object_public(obj) for obj in objects],
             }
@@ -567,6 +636,7 @@ class ZedDepthAssist(Node):
             'status': 'ok',
             'camera_frame': camera_frame,
             'camera_info_frame': intrinsics.get('frame_id'),
+            'camera_info_topic': self.latest_camera_info_topic,
             'hands': hands,
             'gripper_depth_compare': compare,
         }
@@ -635,6 +705,24 @@ class ZedDepthAssist(Node):
             return 'HANDS SAME DEPTH'
         return 'HAND DEPTH --'
 
+    def _compare_user_text(self, compare):
+        farther = compare.get('farther')
+        delta = compare.get('delta_m')
+        if farther == 'left':
+            return f'왼쪽이 더 멂 +{self._format_depth(delta)}m'
+        if farther == 'right':
+            return f'오른쪽이 더 멂 +{self._format_depth(delta)}m'
+        if farther == 'tie':
+            return '양손 깊이 비슷함'
+        return '손 깊이 --'
+
+    def _status_user_text(self, status_text):
+        normalized = str(status_text or '').strip().upper().replace(' ', '_')
+        return {
+            'WAITING_CAMERA_INFO': '카메라 정보 대기 중',
+            'WAITING_TF': 'TF 대기 중',
+        }.get(normalized, str(status_text or '대기 중'))
+
     def _make_assist_image(self, metrics, draw, base_image):
         image = np.ascontiguousarray(base_image.copy())
         height, width = image.shape[:2]
@@ -644,7 +732,13 @@ class ZedDepthAssist(Node):
         if status != 'ok':
             status_text = draw.get('status_text') or str(status).upper()
             cv2.rectangle(image, (0, 0), (width - 1, 86), (0, 0, 255), 2)
-            self._put_text(image, f'ZED ARM DEPTH: {status_text}', (8, 32), 0.72)
+            self._put_user_text(
+                image,
+                f'머리 ZED 깊이: {self._status_user_text(status_text)}',
+                f'ZED ARM DEPTH: {status_text}',
+                (8, 32),
+                0.72,
+            )
             message = str(metrics.get('message') or '')
             if message:
                 self._put_text(image, message[:70], (8, 63), 0.48)
@@ -682,8 +776,10 @@ class ZedDepthAssist(Node):
                 if center[0] is not None and center[1] is not None:
                     cv2.circle(image, center, 5, color, -1, cv2.LINE_AA)
                     label = 'L' if side == 'left' else 'R'
-                    self._put_text(
+                    side_label = '왼손 물체' if side == 'left' else '오른손 물체'
+                    self._put_user_text(
                         image,
+                        f'{side_label} {self._format_delta(obj.get("depth_delta_m"))}m',
                         f'{label} {self._format_delta(obj.get("depth_delta_m"))}m',
                         (center[0] + 8, max(center[1] - 8, 98)),
                         0.46,
@@ -693,8 +789,11 @@ class ZedDepthAssist(Node):
         left = hands.get('left') or {}
         right = hands.get('right') or {}
         compare_text = self._compare_text(metrics.get('gripper_depth_compare') or {})
-        self._put_text(
+        compare_user_text = self._compare_user_text(metrics.get('gripper_depth_compare') or {})
+        self._put_user_text(
             image,
+            f'왼손 {self._format_depth(left.get("hand_depth_m"))}m  '
+            f'오른손 {self._format_depth(right.get("hand_depth_m"))}m  {compare_user_text}',
             f'L HAND {self._format_depth(left.get("hand_depth_m"))}m  '
             f'R HAND {self._format_depth(right.get("hand_depth_m"))}m  {compare_text}',
             (8, 30),
@@ -702,8 +801,12 @@ class ZedDepthAssist(Node):
         )
         left_obj = left.get('nearest_object') or {}
         right_obj = right.get('nearest_object') or {}
-        self._put_text(
+        self._put_user_text(
             image,
+            f'왼손 물체 {self._format_delta(left_obj.get("depth_delta_m"))}m '
+            f'3D {self._format_depth(left_obj.get("distance_3d_m"))}m   '
+            f'오른손 물체 {self._format_delta(right_obj.get("depth_delta_m"))}m '
+            f'3D {self._format_depth(right_obj.get("distance_3d_m"))}m',
             f'L OBJ-HAND {self._format_delta(left_obj.get("depth_delta_m"))}m '
             f'3D {self._format_depth(left_obj.get("distance_3d_m"))}m   '
             f'R OBJ-HAND {self._format_delta(right_obj.get("depth_delta_m"))}m '
@@ -712,6 +815,13 @@ class ZedDepthAssist(Node):
             0.50,
         )
         return image
+
+    def _put_user_text(self, image, korean_text, fallback_text, origin, scale):
+        font_size = max(int(scale * 34), 12)
+        pil_origin = (origin[0], max(int(origin[1] - font_size), 0))
+        if draw_text_bgr(image, korean_text, pil_origin, font_size=font_size):
+            return
+        self._put_text(image, fallback_text, origin, scale)
 
     def _put_text(self, image, text, origin, scale):
         cv2.putText(image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,

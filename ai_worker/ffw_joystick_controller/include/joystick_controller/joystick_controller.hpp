@@ -113,7 +113,10 @@ protected:
     const std::vector<double> & positions,
     const std::string & sensor_name);
   void publish_cmd_vel(bool swerve_mode, const JoystickValues & joystick_values);
+  void publish_zero_cmd_vel();
   void publish_joystick_values();
+  void refresh_last_active_positions_from_joint_states(const std::string & sensor_name);
+  void refresh_all_last_active_positions_from_joint_states();
   void handle_tact_switches(
     bool left_tact_pressed, bool right_tact_pressed, const rclcpp::Time & current_time);
   std::vector<std::string> sensorxel_joy_names_;

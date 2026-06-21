@@ -81,7 +81,7 @@ Visualization Manager:
       Max Value: 1
       Median window: 5
       Min Value: 0
-      Name: Operator Status
+      Name: 조작 상태
       Normalize Range: true
       Topic:
         Depth: 5
@@ -96,7 +96,7 @@ Visualization Manager:
       Max Value: 1
       Median window: 5
       Min Value: 0
-      Name: Head ZED Depth Assist
+      Name: 머리 ZED 깊이 보조
       Normalize Range: true
       Topic:
         Depth: 5
@@ -111,7 +111,7 @@ Visualization Manager:
       Max Value: 1
       Median window: 5
       Min Value: 0
-      Name: Left Wrist Depth Assist
+      Name: 왼쪽 손목 깊이 보조
       Normalize Range: true
       Topic:
         Depth: 5
@@ -141,7 +141,7 @@ Visualization Manager:
       Max Value: 1
       Median window: 5
       Min Value: 0
-      Name: Right Wrist Depth Assist
+      Name: 오른쪽 손목 깊이 보조
       Normalize Range: true
       Topic:
         Depth: 5

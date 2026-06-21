@@ -11,6 +11,8 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Float32
 from std_msgs.msg import String
 
+from ffw_teleop.text_render import draw_text_bgr
+
 
 class WristDepthOverlay(Node):
 
@@ -53,6 +55,8 @@ class WristDepthOverlay(Node):
         self.declare_parameter('view_rotate_deg', 180.0)
         self.declare_parameter('view_flip_horizontal', False)
         self.declare_parameter('view_flip_vertical', False)
+        self.declare_parameter('gripper_target_offset_x_px', 0)
+        self.declare_parameter('gripper_target_offset_y_px', 36)
         self.declare_parameter('band_red_max_m', 0.06)
         self.declare_parameter('band_green_min_m', 0.06)
         self.declare_parameter('band_green_max_m', 0.10)
@@ -115,6 +119,10 @@ class WristDepthOverlay(Node):
             self.get_parameter('view_flip_horizontal').value)
         self.view_flip_vertical = self._as_bool(
             self.get_parameter('view_flip_vertical').value)
+        self.gripper_target_offset_x_px = int(
+            self.get_parameter('gripper_target_offset_x_px').value)
+        self.gripper_target_offset_y_px = int(
+            self.get_parameter('gripper_target_offset_y_px').value)
         self.band_red_max_m = float(self.get_parameter('band_red_max_m').value)
         self.band_green_min_m = float(self.get_parameter('band_green_min_m').value)
         self.band_green_max_m = float(self.get_parameter('band_green_max_m').value)
@@ -161,7 +169,9 @@ class WristDepthOverlay(Node):
             f'overlay_compressed={self.compressed_topic}, assist={self.assist_topic}, '
             f'base_compressed={self.base_compressed_topic if self.base_compressed_pub else "disabled"}, '
             f'view={self.view_preset} rot={self.view_rotate_deg:.0f}deg '
-            f'flip_h={self.view_flip_horizontal} flip_v={self.view_flip_vertical}')
+            f'flip_h={self.view_flip_horizontal} flip_v={self.view_flip_vertical} '
+            f'gripper_target_offset=({self.gripper_target_offset_x_px}, '
+            f'{self.gripper_target_offset_y_px})px display')
 
     def _resolve_colormap(self, name):
         attr = f'COLORMAP_{name.strip().upper()}'
@@ -453,16 +463,32 @@ class WristDepthOverlay(Node):
                 return 'FARTHER'
         return 'ALIGNED'
 
+    def _target_band(self, target_m):
+        if target_m is None or not math.isfinite(float(target_m)):
+            return 'unknown'
+        target_m = float(target_m)
+        if target_m < self.band_red_max_m:
+            return 'too_close'
+        if self.band_green_min_m <= target_m < self.band_green_max_m:
+            return 'close'
+        if self.band_orange_min_m <= target_m <= self.band_orange_max_m:
+            return 'grasp_range'
+        return 'outside'
+
     def _depth_assist_metrics(self, depth_m, stamp):
         height, width = depth_m.shape[:2]
         valid = self._valid_mask(depth_m)
         grid, grid_points = self._depth_grid(depth_m)
-        center_m = grid.get('mc', float('nan'))
-        nearest, draw = self._nearest_component(depth_m, valid, center_m)
+        camera_center_m = grid.get('mc', float('nan'))
+        target_pixels = self._gripper_target_pixels(depth_m.shape)
+        target_px = target_pixels['raw_target_px']
+        target_m = self._median_depth_at(
+            depth_m, target_px['x'], target_px['y'], self.roi_size_px)
+        nearest, draw = self._nearest_component(depth_m, valid, target_m)
         if nearest.get('valid'):
-            nearest['offset_x_px'] = int(nearest['cx_px'] - width // 2)
-            nearest['offset_y_px'] = int(nearest['cy_px'] - height // 2)
-        hint = self._depth_hint(nearest, center_m)
+            nearest['offset_x_px'] = int(nearest['cx_px'] - target_px['x'])
+            nearest['offset_y_px'] = int(nearest['cy_px'] - target_px['y'])
+        hint = self._depth_hint(nearest, target_m)
 
         grid_public = {
             label: self._clean_float(value)
@@ -470,13 +496,15 @@ class WristDepthOverlay(Node):
         }
         nearest_depth = nearest.get('depth_m')
         relative_depth = None
-        if math.isfinite(center_m) and nearest_depth is not None:
-            relative_depth = self._clean_float(center_m - float(nearest_depth))
+        if math.isfinite(target_m) and nearest_depth is not None:
+            relative_depth = self._clean_float(target_m - float(nearest_depth))
 
         metrics = {
             'side': self.side,
             'stamp_sec': self._clean_float(self._stamp_sec(stamp), 6),
-            'center_m': self._clean_float(center_m),
+            'center_m': self._clean_float(target_m),
+            'target_m': self._clean_float(target_m),
+            'camera_center_m': self._clean_float(camera_center_m),
             'grid_m': grid_public,
             'nearest_valid': bool(nearest.get('valid', False)),
             'nearest_depth_m': nearest_depth if nearest.get('valid') else None,
@@ -488,7 +516,10 @@ class WristDepthOverlay(Node):
             'offset_x_px': nearest.get('offset_x_px'),
             'offset_y_px': nearest.get('offset_y_px'),
             'center_minus_nearest_m': relative_depth,
+            'target_minus_nearest_m': relative_depth,
             'hint': hint,
+            'target_band': self._target_band(target_m),
+            'gripper_target': target_pixels,
             'view': {
                 'preset': self.view_preset,
                 'rotate_deg': self._clean_float(self.view_rotate_deg, 1),
@@ -498,6 +529,7 @@ class WristDepthOverlay(Node):
         }
         draw['grid_points'] = grid_points
         draw['valid'] = valid
+        draw['target_pixels'] = target_pixels
         return metrics, draw
 
     def _center_distance(self, depth_m):
@@ -579,11 +611,9 @@ class WristDepthOverlay(Node):
         if contours:
             cv2.drawContours(image, contours, -1, color, 2, cv2.LINE_AA)
 
-    def _apply_view_transform(self, image):
-        transformed = image
+    def _view_transform_matrix(self, width, height):
         angle = self.view_rotate_deg % 360.0
         if not math.isclose(angle, 0.0, abs_tol=1e-3):
-            height, width = transformed.shape[:2]
             center = (width / 2.0, height / 2.0)
             matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
             cos = abs(matrix[0, 0])
@@ -592,6 +622,60 @@ class WristDepthOverlay(Node):
             new_height = int((height * cos) + (width * sin))
             matrix[0, 2] += (new_width / 2.0) - center[0]
             matrix[1, 2] += (new_height / 2.0) - center[1]
+            return matrix, new_width, new_height
+        matrix = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+        return matrix, width, height
+
+    def _apply_affine_to_pixel(self, matrix, pixel):
+        x, y = float(pixel[0]), float(pixel[1])
+        return (
+            float(matrix[0, 0] * x + matrix[0, 1] * y + matrix[0, 2]),
+            float(matrix[1, 0] * x + matrix[1, 1] * y + matrix[1, 2]),
+        )
+
+    def _gripper_target_pixels(self, depth_shape):
+        height, width = depth_shape[:2]
+        raw_center = (width / 2.0, height / 2.0)
+        matrix, display_width, display_height = self._view_transform_matrix(width, height)
+        transformed_center = list(self._apply_affine_to_pixel(matrix, raw_center))
+        if self.view_flip_horizontal:
+            transformed_center[0] = (display_width - 1) - transformed_center[0]
+        if self.view_flip_vertical:
+            transformed_center[1] = (display_height - 1) - transformed_center[1]
+
+        display_target = [
+            transformed_center[0] + float(self.gripper_target_offset_x_px),
+            transformed_center[1] + float(self.gripper_target_offset_y_px),
+        ]
+        pre_flip_target = display_target.copy()
+        if self.view_flip_horizontal:
+            pre_flip_target[0] = (display_width - 1) - pre_flip_target[0]
+        if self.view_flip_vertical:
+            pre_flip_target[1] = (display_height - 1) - pre_flip_target[1]
+
+        inverse = cv2.invertAffineTransform(matrix)
+        raw_target = self._apply_affine_to_pixel(inverse, pre_flip_target)
+        raw_x = int(round(min(max(raw_target[0], 0.0), width - 1)))
+        raw_y = int(round(min(max(raw_target[1], 0.0), height - 1)))
+        display_x = int(round(min(max(display_target[0], 0.0), display_width - 1)))
+        display_y = int(round(min(max(display_target[1], 0.0), display_height - 1)))
+        return {
+            'raw_center_px': {'x': int(round(raw_center[0])), 'y': int(round(raw_center[1]))},
+            'raw_target_px': {'x': raw_x, 'y': raw_y},
+            'display_target_px': {'x': display_x, 'y': display_y},
+            'display_offset_px': {
+                'x': int(self.gripper_target_offset_x_px),
+                'y': int(self.gripper_target_offset_y_px),
+            },
+        }
+
+    def _apply_view_transform(self, image):
+        transformed = image
+        height, width = transformed.shape[:2]
+        matrix, new_width, new_height = self._view_transform_matrix(width, height)
+        if new_width != width or new_height != height or not np.allclose(
+            matrix, np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+        ):
             transformed = cv2.warpAffine(
                 transformed,
                 matrix,
@@ -638,40 +722,53 @@ class WristDepthOverlay(Node):
         self._draw_depth_band(image, red_mask, (0, 0, 255))
 
         height, width = depth_m.shape[:2]
-        center = (width // 2, height // 2)
-        cv2.drawMarker(image, center, (255, 255, 255), cv2.MARKER_CROSS, 20, 1)
+        camera_center = (width // 2, height // 2)
+        target_pixels = draw.get('target_pixels') or {}
+        raw_target = target_pixels.get('raw_target_px') or {'x': camera_center[0], 'y': camera_center[1]}
+        target = (int(raw_target.get('x', camera_center[0])), int(raw_target.get('y', camera_center[1])))
+        cv2.drawMarker(image, camera_center, (180, 180, 180), cv2.MARKER_CROSS, 16, 1)
+        cv2.drawMarker(image, target, (255, 255, 255), cv2.MARKER_CROSS, 24, 2)
+        cv2.circle(image, target, max(self.roi_size_px // 2, 5), (255, 255, 255), 1, cv2.LINE_AA)
+        if target != camera_center:
+            cv2.line(image, camera_center, target, (180, 180, 180), 1, cv2.LINE_AA)
 
         nearest_center = draw.get('center')
         if nearest_center is not None:
             cv2.circle(image, nearest_center, 5, (255, 255, 255), 1, cv2.LINE_AA)
-            cv2.line(image, center, nearest_center, (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.line(image, target, nearest_center, (255, 255, 255), 1, cv2.LINE_AA)
 
         image = self._apply_view_transform(image)
         height, width = image.shape[:2]
         cv2.rectangle(image, (0, 0), (width - 1, 62), (16, 18, 20), -1)
         cv2.rectangle(image, (0, 0), (width - 1, 62), (230, 230, 230), 1)
 
-        center_text = self._format_depth(metrics.get('center_m'))
+        target_text = self._format_depth(metrics.get('target_m'))
         nearest_text = self._format_depth(metrics.get('nearest_depth_m'))
-        view_text = (
-            f'{self.side.upper()} {self.view_preset} ROT {self.view_rotate_deg:.0f}deg '
-            f'FH {int(self.view_flip_horizontal)} FV {int(self.view_flip_vertical)}'
+        side_label = '왼손목' if self.side == 'left' else '오른손목'
+        view_text_ko = (
+            f'{side_label} {self.view_preset} 회전 {self.view_rotate_deg:.0f}도 '
+            f'기준 {self.gripper_target_offset_x_px:+d},{self.gripper_target_offset_y_px:+d}px'
         )
-        self._put_text(image, view_text, (8, 24), 0.50)
-        self._put_text(
+        view_text_en = (
+            f'{self.side.upper()} {self.view_preset} ROT {self.view_rotate_deg:.0f}deg '
+            f'TARGET {self.gripper_target_offset_x_px:+d},{self.gripper_target_offset_y_px:+d}px'
+        )
+        self._put_user_text(image, view_text_ko, view_text_en, (8, 24), 0.50)
+        self._put_user_text(
             image,
-            f'CENTER {center_text}m  NEAR {nearest_text}m',
+            f'집개 기준 {target_text}m  가까운 물체 {nearest_text}m  {self._target_band_label(metrics.get("target_band"))}',
+            f'TARGET {target_text}m  NEAR {nearest_text}m',
             (8, 48),
             0.46,
         )
 
         legend_y = height - 12
-        self._put_text(image, '10-15cm', (8, legend_y), 0.42)
-        cv2.rectangle(image, (90, max(legend_y - 12, 0)), (112, legend_y - 2), (0, 140, 255), -1)
-        self._put_text(image, '6-10cm', (124, legend_y), 0.42)
-        cv2.rectangle(image, (200, max(legend_y - 12, 0)), (222, legend_y - 2), (0, 220, 0), -1)
-        self._put_text(image, '<6cm', (234, legend_y), 0.42)
-        cv2.rectangle(image, (286, max(legend_y - 12, 0)), (308, legend_y - 2), (0, 0, 255), -1)
+        self._put_user_text(image, '잡기 거리', '10-15cm', (8, legend_y), 0.42)
+        cv2.rectangle(image, (86, max(legend_y - 12, 0)), (108, legend_y - 2), (0, 140, 255), -1)
+        self._put_user_text(image, '가까움', '6-10cm', (120, legend_y), 0.42)
+        cv2.rectangle(image, (176, max(legend_y - 12, 0)), (198, legend_y - 2), (0, 220, 0), -1)
+        self._put_user_text(image, '너무 가까움', '<6cm', (210, legend_y), 0.42)
+        cv2.rectangle(image, (314, max(legend_y - 12, 0)), (336, legend_y - 2), (0, 0, 255), -1)
         return np.ascontiguousarray(image)
 
     def _make_overlay(self, depth_m, center_distance, base_image):
@@ -737,6 +834,22 @@ class WristDepthOverlay(Node):
         ]
         if contours:
             cv2.drawContours(overlay, contours, -1, (255, 255, 255), 1, cv2.LINE_AA)
+
+    def _target_band_label(self, band):
+        return {
+            'grasp_range': '잡기 거리',
+            'close': '가까움',
+            'too_close': '너무 가까움',
+            'outside': '거리 확인',
+            'unknown': '거리 --',
+        }.get(str(band), '거리 --')
+
+    def _put_user_text(self, image, korean_text, fallback_text, origin, scale):
+        font_size = max(int(scale * 34), 12)
+        pil_origin = (origin[0], max(int(origin[1] - font_size), 0))
+        if draw_text_bgr(image, korean_text, pil_origin, font_size=font_size):
+            return
+        self._put_text(image, fallback_text, origin, scale)
 
     def _put_text(self, image, text, origin, scale):
         cv2.putText(image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,

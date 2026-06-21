@@ -14,6 +14,9 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool
 from std_msgs.msg import Float32
 from std_msgs.msg import String
+from trajectory_msgs.msg import JointTrajectory
+
+from ffw_teleop.text_render import draw_text_bgr
 
 
 class AlignmentStatus(Node):
@@ -38,6 +41,8 @@ class AlignmentStatus(Node):
         self.declare_parameter('tact_trigger_topic', '/leader/joystick_controller/tact_trigger')
         self.declare_parameter(
             'joystick_mode_topic', '/leader/joystick_controller_right/joystick_mode')
+        self.declare_parameter(
+            'head_target_topic', '/leader/joystick_controller_left/joint_trajectory')
         self.declare_parameter('joint_state_topic', '/joint_states')
         self.declare_parameter('odom_topic', '/odom')
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
@@ -76,6 +81,7 @@ class AlignmentStatus(Node):
         self.latest = {}
         self.latest_alignment_status = None
         self.latest_joint_state = None
+        self.latest_head_target = None
         self.latest_odom = None
         self.latest_cmd_vel = None
         self.latest_mode = 'arm_control'
@@ -108,6 +114,9 @@ class AlignmentStatus(Node):
         self._subscribe_if_topic(
             String, self.get_parameter('joystick_mode_topic').value,
             self._joystick_mode_callback)
+        self._subscribe_if_topic(
+            JointTrajectory, self.get_parameter('head_target_topic').value,
+            self._head_target_callback)
         self._subscribe_if_topic(
             JointState, self.get_parameter('joint_state_topic').value,
             self._joint_state_callback)
@@ -181,6 +190,18 @@ class AlignmentStatus(Node):
 
     def _joint_state_callback(self, msg):
         self.latest_joint_state = msg
+
+    def _head_target_callback(self, msg):
+        target = {}
+        if msg.points:
+            positions = msg.points[-1].positions
+            for index, name in enumerate(msg.joint_names):
+                if index < len(positions):
+                    target[name] = float(positions[index])
+        self.latest_head_target = {
+            'stamp_sec': self._stamp_sec(msg.header.stamp),
+            'target': target,
+        }
 
     def _odom_callback(self, msg):
         self.latest_odom = msg
@@ -276,56 +297,76 @@ class AlignmentStatus(Node):
         ):
             return
 
-        width = 560
-        height = 236
+        width = 660
+        height = 252
         image = np.full((height, width, 3), (34, 36, 40), dtype=np.uint8)
         mode = str(payload.get('mode') or 'unknown').strip()
         mode_key = mode.lower()
         if mode_key == 'swerve':
-            mode_label = 'BASE MOVE'
+            mode_label = '이동 모드'
+            mode_label_en = 'BASE MOVE'
             header_color = (32, 113, 239)
         else:
-            mode_label = 'ZED/HEAD + LIFT'
+            mode_label = '팔/머리 모드'
+            mode_label_en = 'ZED/HEAD + LIFT'
             header_color = (67, 161, 92)
 
         cv2.rectangle(image, (0, 0), (width, 58), header_color, -1)
-        self._put_panel_text(
-            image, f'MODE: {mode.upper()}', (16, 38), 0.86, (255, 255, 255), 2)
-        self._put_panel_text(
-            image, mode_label, (350, 38), 0.70, (255, 255, 255), 2)
+        self._put_panel_user_text(
+            image, f'모드: {mode}', f'MODE: {mode.upper()}', (16, 38), 0.86,
+            (255, 255, 255), 2)
+        self._put_panel_user_text(
+            image, mode_label, mode_label_en, (370, 38), 0.70, (255, 255, 255), 2)
 
         head = payload.get('head') or {}
-        head_state = 'HOLD' if mode_key == 'swerve' else 'ACTIVE'
-        head_text = (
-            f'HEAD: J1 {self._format_joint(head.get("head_joint1"))} '
-            f'J2 {self._format_joint(head.get("head_joint2"))} {head_state}'
+        head_state = '머리 고정' if mode_key == 'swerve' else '머리 조작'
+        head_state_en = 'HOLD' if mode_key == 'swerve' else 'ACTIVE'
+        head_text_ko = (
+            f'{head_state}: 현재 {self._format_joint(head.get("head_joint1"))},'
+            f'{self._format_joint(head.get("head_joint2"))}  '
+            f'목표 {self._format_joint(head.get("target_head_joint1"))},'
+            f'{self._format_joint(head.get("target_head_joint2"))}  '
+            f'오차 {self._format_joint(head.get("error_head_joint1"))},'
+            f'{self._format_joint(head.get("error_head_joint2"))}'
         )
-        self._put_panel_text(image, head_text, (16, 84), 0.54, (236, 241, 245), 1)
+        head_text_en = (
+            f'HEAD: J1 {self._format_joint(head.get("head_joint1"))} '
+            f'J2 {self._format_joint(head.get("head_joint2"))} {head_state_en}'
+        )
+        self._put_panel_user_text(
+            image, head_text_ko, head_text_en, (16, 84), 0.50, (236, 241, 245), 1)
 
         depth_metrics = payload.get('depth_metrics') or {}
         distances = payload.get('center_distance_m') or {}
         left_metric = depth_metrics.get('left') or {}
         right_metric = depth_metrics.get('right') or {}
-        left_distance = self._format_distance(left_metric.get('center_m', distances.get('left')))
-        right_distance = self._format_distance(right_metric.get('center_m', distances.get('right')))
-        left_hint = str(left_metric.get('hint') or '--')
-        right_hint = str(right_metric.get('hint') or '--')
-        self._put_panel_text(
-            image, f'L DEPTH: {left_distance} {left_hint}', (16, 118), 0.54, (236, 241, 245), 1)
-        self._put_panel_text(
-            image, f'R DEPTH: {right_distance} {right_hint}', (292, 118), 0.54, (236, 241, 245), 1)
+        left_distance = self._format_distance(left_metric.get('target_m', left_metric.get('center_m', distances.get('left'))))
+        right_distance = self._format_distance(right_metric.get('target_m', right_metric.get('center_m', distances.get('right'))))
+        left_hint = self._hint_label(left_metric.get('hint'))
+        right_hint = self._hint_label(right_metric.get('hint'))
+        self._put_panel_user_text(
+            image, f'왼손목: 집개 기준 {left_distance} {left_hint}',
+            f'L DEPTH: {left_distance} {left_metric.get("hint") or "--"}',
+            (16, 118), 0.50, (236, 241, 245), 1)
+        self._put_panel_user_text(
+            image, f'오른손목: 집개 기준 {right_distance} {right_hint}',
+            f'R DEPTH: {right_distance} {right_metric.get("hint") or "--"}',
+            (292, 118), 0.50, (236, 241, 245), 1)
 
         left_offset = self._format_offset(left_metric)
         right_offset = self._format_offset(right_metric)
-        self._put_panel_text(
-            image, f'L OFFSET: {left_offset}', (16, 152), 0.54, (236, 241, 245), 1)
-        self._put_panel_text(
-            image, f'R OFFSET: {right_offset}', (292, 152), 0.54, (236, 241, 245), 1)
+        self._put_panel_user_text(
+            image, f'왼쪽 오프셋: {left_offset}', f'L OFFSET: {left_offset}',
+            (16, 152), 0.50, (236, 241, 245), 1)
+        self._put_panel_user_text(
+            image, f'오른쪽 오프셋: {right_offset}', f'R OFFSET: {right_offset}',
+            (292, 152), 0.50, (236, 241, 245), 1)
 
         left_view = self._format_view(left_metric)
         right_view = self._format_view(right_metric)
-        self._put_panel_text(
-            image, f'VIEW: L {left_view}  R {right_view}', (16, 186), 0.54, (203, 211, 218), 1)
+        self._put_panel_user_text(
+            image, f'화면: 왼쪽 {left_view}  오른쪽 {right_view}',
+            f'VIEW: L {left_view}  R {right_view}', (16, 186), 0.50, (203, 211, 218), 1)
 
         table = payload.get('table_relative')
         if table:
@@ -333,9 +374,15 @@ class AlignmentStatus(Node):
                 f'TABLE: {self._format_distance(table.get("distance_m"))} '
                 f'HEAD ERR: {self._format_angle(table.get("heading_to_table_error_deg"))}'
             )
+            table_text_ko = (
+                f'테이블: {self._format_distance(table.get("distance_m"))} '
+                f'방향 오차 {self._format_angle(table.get("heading_to_table_error_deg"))}'
+            )
         else:
             table_text = 'TABLE: --'
-        self._put_panel_text(image, table_text, (16, 220), 0.50, (203, 211, 218), 1)
+            table_text_ko = '테이블: --'
+        self._put_panel_user_text(
+            image, table_text_ko, table_text, (16, 220), 0.48, (203, 211, 218), 1)
 
         ok, encoded = cv2.imencode(
             '.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), self.status_panel_jpeg_quality])
@@ -356,6 +403,32 @@ class AlignmentStatus(Node):
         cv2.putText(
             image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,
             color, thickness, cv2.LINE_AA)
+
+    def _put_panel_user_text(self, image, korean_text, fallback_text, origin, scale, color, thickness):
+        font_size = max(int(scale * 34), 12)
+        pil_origin = (origin[0], max(int(origin[1] - font_size), 0))
+        if draw_text_bgr(
+            image,
+            korean_text,
+            pil_origin,
+            font_size=font_size,
+            color=color,
+            stroke_width=thickness + 1,
+        ):
+            return
+        self._put_panel_text(image, fallback_text, origin, scale, color, thickness)
+
+    def _hint_label(self, hint):
+        return {
+            'ALIGNED': '정렬됨',
+            'LEFT': '왼쪽',
+            'RIGHT': '오른쪽',
+            'UP': '위',
+            'DOWN': '아래',
+            'CLOSER': '더 가까이',
+            'FARTHER': '뒤로',
+            'CHECK': '확인',
+        }.get(str(hint or '').upper(), '--')
 
     def _format_distance(self, value):
         if value is None:
@@ -418,9 +491,30 @@ class AlignmentStatus(Node):
         msg = self.latest_joint_state
         if msg is None:
             return None
-        return {
+        current = {
             'head_joint1': self._joint_position(msg, 'head_joint1'),
             'head_joint2': self._joint_position(msg, 'head_joint2'),
+        }
+        target_msg = self.latest_head_target or {}
+        target_map = target_msg.get('target') or {}
+        target = {
+            'head_joint1': self._clean_float(target_map.get('head_joint1')) if 'head_joint1' in target_map else None,
+            'head_joint2': self._clean_float(target_map.get('head_joint2')) if 'head_joint2' in target_map else None,
+        }
+        error = {}
+        for name in ('head_joint1', 'head_joint2'):
+            if current[name] is None or target[name] is None:
+                error[name] = None
+            else:
+                error[name] = self._clean_float(current[name] - target[name])
+        return {
+            'head_joint1': current['head_joint1'],
+            'head_joint2': current['head_joint2'],
+            'target_head_joint1': target['head_joint1'],
+            'target_head_joint2': target['head_joint2'],
+            'error_head_joint1': error['head_joint1'],
+            'error_head_joint2': error['head_joint2'],
+            'target_stamp_sec': target_msg.get('stamp_sec'),
         }
 
     def _joint_position(self, msg, name):

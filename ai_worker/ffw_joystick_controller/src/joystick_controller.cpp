@@ -247,6 +247,52 @@ void JoystickController::publish_cmd_vel(bool swerve_mode, const JoystickValues 
   cmd_vel_pub_->publish(twist_msg);
 }
 
+void JoystickController::publish_zero_cmd_vel()
+{
+  if (!cmd_vel_pub_) {
+    return;
+  }
+  geometry_msgs::msg::Twist twist_msg;
+  cmd_vel_pub_->publish(twist_msg);
+}
+
+void JoystickController::refresh_last_active_positions_from_joint_states(
+  const std::string & sensor_name)
+{
+  if (!has_joint_states_) {
+    return;
+  }
+
+  auto joints_it = sensor_controlled_joints_.find(sensor_name);
+  if (joints_it == sensor_controlled_joints_.end()) {
+    return;
+  }
+
+  const auto & controlled_joints = joints_it->second;
+  auto & last_active_positions = sensor_last_active_positions_[sensor_name];
+  last_active_positions.resize(controlled_joints.size(), 0.0);
+
+  for (size_t i = 0; i < controlled_joints.size(); ++i) {
+    const auto & joint_name = controlled_joints[i];
+    auto it = std::find(current_joint_states_.name.begin(), current_joint_states_.name.end(),
+        joint_name);
+    if (it == current_joint_states_.name.end()) {
+      continue;
+    }
+    const size_t index = std::distance(current_joint_states_.name.begin(), it);
+    if (index < current_joint_states_.position.size()) {
+      last_active_positions[i] = current_joint_states_.position[index];
+    }
+  }
+}
+
+void JoystickController::refresh_all_last_active_positions_from_joint_states()
+{
+  for (const auto & sensor_name : sensorxel_joy_names_) {
+    refresh_last_active_positions_from_joint_states(sensor_name);
+  }
+}
+
 void JoystickController::publish_joystick_values()
 {
   auto sensorxel_joy_msg = std_msgs::msg::Float64MultiArray();
@@ -317,10 +363,15 @@ void JoystickController::handle_tact_switches(
     if (both_pressed_flag_) {
       // Mode change - both buttons were pressed at some point
       std_msgs::msg::String mode_msg;
+      const std::string previous_mode = current_mode_;
       if (current_mode_ == constants::ARM_CONTROL_MODE) {
         current_mode_ = constants::SWERVE_MODE;
       } else {
         current_mode_ = constants::ARM_CONTROL_MODE;
+      }
+      refresh_all_last_active_positions_from_joint_states();
+      if (previous_mode == constants::SWERVE_MODE && current_mode_ != constants::SWERVE_MODE) {
+        publish_zero_cmd_vel();
       }
       mode_msg.data = current_mode_;
       mode_pub_->publish(mode_msg);
@@ -396,20 +447,9 @@ void JoystickController::joint_states_callback(const sensor_msgs::msg::JointStat
 
   // initialize last_active_positions_ by sensor
   if (!has_joint_states_) {
-    for (const auto & sensor_name : sensorxel_joy_names_) {
-      const auto & controlled_joints = sensor_controlled_joints_[sensor_name];
-      auto & last_active_positions = sensor_last_active_positions_[sensor_name];
-      last_active_positions.resize(controlled_joints.size());
-      for (size_t i = 0; i < controlled_joints.size(); ++i) {
-        const auto & joint_name = controlled_joints[i];
-        auto it = std::find(current_joint_states_.name.begin(), current_joint_states_.name.end(),
-            joint_name);
-        if (it != current_joint_states_.name.end()) {
-          size_t index = std::distance(current_joint_states_.name.begin(), it);
-          last_active_positions[i] = current_joint_states_.position[index];
-        }
-      }
-    }
+    has_joint_states_ = true;
+    refresh_all_last_active_positions_from_joint_states();
+    return;
   }
 
   has_joint_states_ = true;
@@ -463,17 +503,7 @@ controller_interface::return_type JoystickController::update(
     if (sensor_was_active && !joint_motion_active && !current_joint_states_.name.empty() &&
       !controlled_joints.empty())
     {
-      for (size_t i = 0; i < controlled_joints.size(); ++i) {
-        const auto & joint_name = controlled_joints[i];
-        auto it = std::find(current_joint_states_.name.begin(), current_joint_states_.name.end(),
-            joint_name);
-        if (it != current_joint_states_.name.end()) {
-          size_t index = std::distance(current_joint_states_.name.begin(), it);
-          if (i < last_active_positions.size()) {
-            last_active_positions[i] = current_joint_states_.position[index];
-          }
-        }
-      }
+      refresh_last_active_positions_from_joint_states(sensor_name);
     }
 
     // Publish joint trajectory
@@ -635,7 +665,7 @@ controller_interface::CallbackReturn JoystickController::on_configure(
   right_tact_press_start_time_ = rclcpp::Time(0);
 
   // Create publisher for cmd_vel
-  cmd_vel_pub_ = get_node()->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+  cmd_vel_pub_ = get_node()->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 1);
 
   RCLCPP_INFO(get_node()->get_logger(), "JoystickController configured successfully.");
   return CallbackReturn::SUCCESS;
@@ -675,6 +705,7 @@ controller_interface::CallbackReturn JoystickController::on_activate(
 controller_interface::CallbackReturn JoystickController::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
+  publish_zero_cmd_vel();
   RCLCPP_INFO(get_node()->get_logger(), "JoystickController deactivated successfully.");
   return CallbackReturn::SUCCESS;
 }
