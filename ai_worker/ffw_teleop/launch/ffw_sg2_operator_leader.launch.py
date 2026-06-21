@@ -25,6 +25,7 @@ def generate_launch_description():
     start_rviz = LaunchConfiguration('start_rviz')
     start_leader = LaunchConfiguration('start_leader')
     start_mission_control = LaunchConfiguration('start_mission_control')
+    start_operator_image_viewer = LaunchConfiguration('start_operator_image_viewer')
     start_operator_layout = LaunchConfiguration('start_operator_layout')
     rviz_config = LaunchConfiguration('rviz_config')
     mission_profiles_config = LaunchConfiguration('mission_profiles_config')
@@ -136,6 +137,22 @@ def generate_launch_description():
         condition=IfCondition(start_mission_control),
     )
 
+    operator_image_viewer = Node(
+        package='ffw_teleop',
+        executable='operator_image_viewer',
+        name='operator_image_viewer',
+        output='screen',
+        parameters=[{
+            'window_title': 'Teleop Image Viewer',
+            'tile_width': 480,
+            'tile_height': 270,
+            'columns': 2,
+            'window_x': 1520,
+            'window_y': 40,
+        }],
+        condition=IfCondition(start_operator_image_viewer),
+    )
+
     operator_layout = Node(
         package='ffw_teleop',
         executable='operator_layout_manager',
@@ -164,6 +181,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_leader', default_value='true'),
         DeclareLaunchArgument('start_rviz', default_value='true'),
         DeclareLaunchArgument('start_mission_control', default_value='true'),
+        DeclareLaunchArgument('start_operator_image_viewer', default_value='true'),
         DeclareLaunchArgument('start_operator_layout', default_value='true'),
         DeclareLaunchArgument(
             'rviz_config',
@@ -203,5 +221,6 @@ def generate_launch_description():
         leader_spawner,
         rviz,
         mission_control,
+        operator_image_viewer,
         operator_layout,
     ])

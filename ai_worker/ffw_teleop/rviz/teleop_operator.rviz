@@ -77,7 +77,7 @@ Visualization Manager:
         Value: /scan
       Value: true
     - Class: rviz_default_plugins/Image
-      Enabled: true
+      Enabled: false
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -90,7 +90,7 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /teleop/operator_status
       Transport Hint: compressed
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Image
       Enabled: false
       Max Value: 1
@@ -122,7 +122,7 @@ Visualization Manager:
       Transport Hint: compressed
       Value: false
     - Class: rviz_default_plugins/Image
-      Enabled: true
+      Enabled: false
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -135,9 +135,9 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /teleop/zed/depth_assist
       Transport Hint: compressed
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Image
-      Enabled: true
+      Enabled: false
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -150,7 +150,7 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /teleop/wrist_left/depth_assist
       Transport Hint: compressed
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Image
       Enabled: false
       Max Value: 1
@@ -167,7 +167,7 @@ Visualization Manager:
       Transport Hint: compressed
       Value: false
     - Class: rviz_default_plugins/Image
-      Enabled: true
+      Enabled: false
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -180,7 +180,7 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /teleop/wrist_right/depth_assist
       Transport Hint: compressed
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Image
       Enabled: false
       Max Value: 1

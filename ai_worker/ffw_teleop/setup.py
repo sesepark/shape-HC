@@ -44,6 +44,7 @@ setup(
             'teleop_bandwidth_monitor = ffw_teleop.teleop_bandwidth_monitor:main',
             'mission_mode_manager = ffw_teleop.mission_mode_manager:main',
             'operator_layout_manager = ffw_teleop.operator_layout_manager:main',
+            'operator_image_viewer = ffw_teleop.operator_image_viewer:main',
         ],
     },
 )

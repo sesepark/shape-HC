@@ -20,6 +20,11 @@ DEFAULT_TARGETS = [
         'enabled': True,
         'title_patterns': ['Mission Control'],
     },
+    {
+        'name': 'operator_image_viewer',
+        'enabled': True,
+        'title_patterns': ['Teleop Image Viewer'],
+    },
 ]
 
 

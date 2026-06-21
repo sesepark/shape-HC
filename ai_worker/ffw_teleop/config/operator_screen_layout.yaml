@@ -9,15 +9,7 @@ windows:
     enabled: true
     title_patterns:
       - "Mission Control"
-  - name: zed_viewer
-    enabled: false
+  - name: operator_image_viewer
+    enabled: true
     title_patterns:
-      - "Head ZED Depth Assist"
-  - name: left_wrist_viewer
-    enabled: false
-    title_patterns:
-      - "Left Wrist Depth Assist"
-  - name: right_wrist_viewer
-    enabled: false
-    title_patterns:
-      - "Right Wrist Depth Assist"
+      - "Teleop Image Viewer"
