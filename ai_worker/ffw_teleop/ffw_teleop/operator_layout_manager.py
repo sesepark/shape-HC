@@ -6,6 +6,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
 
 
 DEFAULT_TARGETS = [
@@ -29,6 +30,8 @@ class OperatorLayoutManager(Node):
         self.declare_parameter('layout_config', '')
         self.declare_parameter('layout_store_path', '~/.config/ffw_teleop/operator_screen_layout.json')
         self.declare_parameter('action', 'restore')
+        self.declare_parameter('command_topic', '/teleop/operator_layout/command')
+        self.declare_parameter('status_topic', '/teleop/operator_layout/status')
         self.declare_parameter('initial_delay_s', 3.0)
         self.declare_parameter('retry_count', 24)
         self.declare_parameter('retry_interval_s', 0.5)
@@ -42,18 +45,31 @@ class OperatorLayoutManager(Node):
         self.action = str(self.get_parameter('action').value).strip().lower() or 'restore'
         if self._as_bool(self.get_parameter('diagnostic_only').value):
             self.action = 'diagnostic'
+        self.command_topic = str(self.get_parameter('command_topic').value).strip()
+        self.status_topic = str(self.get_parameter('status_topic').value).strip()
         self.initial_delay_s = max(float(self.get_parameter('initial_delay_s').value), 0.0)
         self.retry_count = max(int(self.get_parameter('retry_count').value), 1)
         self.retry_interval_s = max(float(self.get_parameter('retry_interval_s').value), 0.1)
         self.dry_run = self._as_bool(self.get_parameter('dry_run').value)
         self.wmctrl_path = str(self.get_parameter('wmctrl_path').value).strip() or 'wmctrl'
         self.targets = self._load_targets(self.layout_config)
+        self.status_pub = None
+        if self.status_topic:
+            self.status_pub = self.create_publisher(String, self.status_topic, 10)
+        self.command_sub = None
 
     def run(self):
+        if self.action == 'server':
+            self._run_server()
+            return
+        if self.action == 'reset':
+            self._reset_saved_layout()
+            return
         wmctrl = self._resolve_wmctrl()
         if wmctrl is None:
-            self.get_logger().warn(
-                'wmctrl is not available; install it to save/restore operator layout')
+            message = 'wmctrl is not available; install it to save/restore operator layout'
+            self.get_logger().warn(message)
+            self._publish_status('error', message, self.action)
             return
 
         if self.action == 'diagnostic':
@@ -67,6 +83,56 @@ class OperatorLayoutManager(Node):
 
         self._restore_saved_layout(wmctrl)
 
+    def _run_server(self):
+        if self.command_topic:
+            self.command_sub = self.create_subscription(
+                String, self.command_topic, self._command_callback, 10)
+        self.get_logger().info(
+            f'operator layout manager server active: command={self.command_topic}, '
+            f'status={self.status_topic}')
+        wmctrl = self._resolve_wmctrl()
+        if wmctrl is None:
+            message = 'wmctrl is not available; layout save/restore commands disabled'
+            self.get_logger().warn(message)
+            self._publish_status('error', message, 'server')
+        else:
+            self._restore_saved_layout(wmctrl)
+            self._publish_status('ready', 'operator layout manager ready', 'server')
+        rclpy.spin(self)
+
+    def _command_callback(self, msg):
+        action = str(msg.data or '').strip().lower()
+        aliases = {
+            'save_layout': 'save',
+            'restore_layout': 'restore',
+            'reset_layout': 'reset',
+            'clear': 'reset',
+        }
+        action = aliases.get(action, action)
+        if action == 'reset':
+            self._reset_saved_layout()
+            return
+        if action in ('save', 'restore', 'diagnostic'):
+            self._run_layout_action(action)
+            return
+        message = f'unknown layout command: {msg.data!r}'
+        self.get_logger().warn(message)
+        self._publish_status('error', message, action)
+
+    def _run_layout_action(self, action):
+        wmctrl = self._resolve_wmctrl()
+        if wmctrl is None:
+            message = 'wmctrl is not available; install it to save/restore operator layout'
+            self.get_logger().warn(message)
+            self._publish_status('error', message, action)
+            return
+        if action == 'save':
+            self._save_current_layout(wmctrl)
+        elif action == 'restore':
+            self._restore_saved_layout(wmctrl)
+        elif action == 'diagnostic':
+            self._print_diagnostics(wmctrl)
+
     def _as_bool(self, value):
         if isinstance(value, bool):
             return value
@@ -78,6 +144,21 @@ class OperatorLayoutManager(Node):
         if os.path.isabs(self.wmctrl_path) and os.path.exists(self.wmctrl_path):
             return self.wmctrl_path
         return shutil.which(self.wmctrl_path)
+
+    def _publish_status(self, status, message, action='', details=None):
+        if self.status_pub is None:
+            return
+        payload = {
+            'stamp_sec': self.get_clock().now().nanoseconds / 1e9,
+            'status': str(status),
+            'action': str(action or ''),
+            'message': str(message),
+        }
+        if details:
+            payload['details'] = details
+        msg = String()
+        msg.data = json.dumps(payload, sort_keys=True)
+        self.status_pub.publish(msg)
 
     def _load_targets(self, path):
         if not path:
@@ -154,11 +235,13 @@ class OperatorLayoutManager(Node):
     def _save_current_layout(self, wmctrl):
         windows = self._list_windows(wmctrl)
         saved_windows = []
+        missing_windows = []
         for target in self.targets:
             if not self._enabled(target):
                 continue
             match = self._find_window(target, windows)
             if match is None:
+                missing_windows.append(str(target.get('name') or 'unnamed'))
                 self.get_logger().warn(
                     f'cannot save layout for missing window: {target.get("name", "unnamed")}')
                 continue
@@ -186,6 +269,12 @@ class OperatorLayoutManager(Node):
         }
         if self.dry_run:
             self.get_logger().info(json.dumps(payload, sort_keys=True))
+            self._publish_status(
+                'ok',
+                f'dry-run saved {len(saved_windows)} window layouts',
+                'save',
+                {'missing_windows': missing_windows},
+            )
             return
         layout_dir = os.path.dirname(self.layout_store_path)
         if layout_dir:
@@ -193,28 +282,49 @@ class OperatorLayoutManager(Node):
         with open(self.layout_store_path, 'w', encoding='utf-8') as stream:
             json.dump(payload, stream, indent=2, sort_keys=True)
             stream.write('\n')
-        self.get_logger().info(f'saved operator layout: {self.layout_store_path}')
+        message = f'saved {len(saved_windows)} window layouts'
+        self.get_logger().info(f'{message}: {self.layout_store_path}')
+        self._publish_status(
+            'ok',
+            message,
+            'save',
+            {
+                'path': self.layout_store_path,
+                'missing_windows': missing_windows,
+            },
+        )
 
     def _restore_saved_layout(self, wmctrl):
         if not os.path.exists(self.layout_store_path):
-            self.get_logger().info(
-                f'no saved operator layout at {self.layout_store_path}; skipping restore')
+            message = f'no saved operator layout at {self.layout_store_path}; skipping restore'
+            self.get_logger().info(message)
+            self._publish_status(
+                'idle',
+                'no saved operator layout; skipped restore',
+                'restore',
+                {'path': self.layout_store_path},
+            )
             return
         try:
             with open(self.layout_store_path, 'r', encoding='utf-8') as stream:
                 payload = json.load(stream)
         except (OSError, json.JSONDecodeError) as exc:
-            self.get_logger().warn(f'failed to read saved operator layout: {exc}')
+            message = f'failed to read saved operator layout: {exc}'
+            self.get_logger().warn(message)
+            self._publish_status('error', message, 'restore')
             return
         saved_windows = payload.get('windows') or []
         pending = [window for window in saved_windows if self._enabled(window)]
         if not pending:
-            self.get_logger().info('saved operator layout has no enabled windows')
+            message = 'saved operator layout has no enabled windows'
+            self.get_logger().info(message)
+            self._publish_status('idle', message, 'restore')
             return
 
         if self.initial_delay_s > 0.0:
             time.sleep(self.initial_delay_s)
 
+        restored_count = 0
         for _ in range(self.retry_count):
             if not pending:
                 break
@@ -226,6 +336,7 @@ class OperatorLayoutManager(Node):
                     next_pending.append(window)
                     continue
                 self._apply_geometry(wmctrl, match, window)
+                restored_count += 1
             pending = next_pending
             if pending:
                 time.sleep(self.retry_interval_s)
@@ -233,6 +344,24 @@ class OperatorLayoutManager(Node):
         for window in pending:
             self.get_logger().warn(
                 f'window not found for saved layout: {window.get("name", "unnamed")}')
+        if pending:
+            self._publish_status(
+                'warn',
+                f'restored {restored_count} windows; {len(pending)} not found',
+                'restore',
+                {
+                    'missing_windows': [
+                        str(window.get('name') or 'unnamed') for window in pending
+                    ],
+                },
+            )
+        else:
+            self._publish_status(
+                'ok',
+                f'restored {restored_count} windows',
+                'restore',
+                {'path': self.layout_store_path},
+            )
 
     def _apply_geometry(self, wmctrl, match, target):
         x = int(target.get('x', 0))
@@ -255,11 +384,49 @@ class OperatorLayoutManager(Node):
         windows = self._list_windows(wmctrl)
         if not windows:
             self.get_logger().info('no X11 windows reported by wmctrl')
+            self._publish_status('idle', 'no X11 windows reported by wmctrl', 'diagnostic')
             return
         for window in windows:
             self.get_logger().info(
                 f'{window["id"]} x={window["x"]} y={window["y"]} '
                 f'w={window["width"]} h={window["height"]} title={window["title"]}')
+        self._publish_status(
+            'ok',
+            f'reported {len(windows)} X11 windows',
+            'diagnostic',
+        )
+
+    def _reset_saved_layout(self):
+        if not self.layout_store_path:
+            message = 'layout store path is empty'
+            self.get_logger().warn(message)
+            self._publish_status('error', message, 'reset')
+            return
+        if not os.path.exists(self.layout_store_path):
+            message = 'no saved operator layout to reset'
+            self.get_logger().info(message)
+            self._publish_status(
+                'idle',
+                message,
+                'reset',
+                {'path': self.layout_store_path},
+            )
+            return
+        try:
+            os.remove(self.layout_store_path)
+        except OSError as exc:
+            message = f'failed to reset saved operator layout: {exc}'
+            self.get_logger().warn(message)
+            self._publish_status('error', message, 'reset')
+            return
+        message = 'deleted saved operator layout'
+        self.get_logger().info(f'{message}: {self.layout_store_path}')
+        self._publish_status(
+            'ok',
+            message,
+            'reset',
+            {'path': self.layout_store_path},
+        )
 
 
 def main(args=None):

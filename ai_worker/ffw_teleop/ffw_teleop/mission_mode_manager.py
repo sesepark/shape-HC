@@ -82,6 +82,8 @@ class MissionModeManager(Node):
         self.declare_parameter('panel_height', 360)
         self.declare_parameter('initial_mission', '')
         self.declare_parameter('gui_enabled', True)
+        self.declare_parameter('layout_command_topic', '/teleop/operator_layout/command')
+        self.declare_parameter('layout_status_topic', '/teleop/operator_layout/status')
 
         self.profiles_config = str(self.get_parameter('profiles_config').value).strip()
         self.select_topic = str(self.get_parameter('select_topic').value).strip()
@@ -92,6 +94,10 @@ class MissionModeManager(Node):
         self.panel_width = max(int(self.get_parameter('panel_width').value), 320)
         self.panel_height = max(int(self.get_parameter('panel_height').value), 180)
         self.gui_enabled = self._as_bool(self.get_parameter('gui_enabled').value)
+        self.layout_command_topic = str(
+            self.get_parameter('layout_command_topic').value).strip()
+        self.layout_status_topic = str(
+            self.get_parameter('layout_status_topic').value).strip()
 
         profile_data = self._load_profiles(self.profiles_config)
         self.missions = profile_data['missions']
@@ -101,6 +107,7 @@ class MissionModeManager(Node):
         self.updated_by = 'startup'
         self.root = None
         self.tk = None
+        self.messagebox = None
         self.gui_widgets = {}
 
         state_qos = QoSProfile(depth=1)
@@ -112,8 +119,16 @@ class MissionModeManager(Node):
             String, self.mission_state_topic, state_qos)
         self.panel_pub = self.create_publisher(
             CompressedImage, self.mission_panel_topic, 1)
+        self.layout_command_pub = None
+        if self.layout_command_topic:
+            self.layout_command_pub = self.create_publisher(
+                String, self.layout_command_topic, 10)
         self.select_sub = self.create_subscription(
             String, self.select_topic, self._select_callback, 10)
+        self.layout_status_sub = None
+        if self.layout_status_topic:
+            self.layout_status_sub = self.create_subscription(
+                String, self.layout_status_topic, self._layout_status_callback, 10)
         self.timer = self.create_timer(1.0 / publish_hz, self._publish_state)
 
         self._init_gui()
@@ -121,7 +136,7 @@ class MissionModeManager(Node):
         self.get_logger().info(
             f'mission mode manager active: mission={self.active_mission}, '
             f'select={self.select_topic}, state={self.mission_state_topic}, '
-            f'panel={self.mission_panel_topic}')
+            f'panel={self.mission_panel_topic}, layout={self.layout_command_topic}')
 
     def run(self):
         if self.root is None:
@@ -191,6 +206,27 @@ class MissionModeManager(Node):
             self.get_logger().warn(f'ignoring unknown mission selection: {msg.data!r}')
             return
         self._set_mission(mission, 'topic')
+
+    def _layout_status_callback(self, msg):
+        text = str(msg.data or '').strip()
+        if not text:
+            return
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            self._set_layout_status(f'Layout: {text}')
+            return
+        action = str(payload.get('action') or '').strip()
+        status = str(payload.get('status') or '').strip()
+        message = str(payload.get('message') or '').strip()
+        parts = []
+        if action:
+            parts.append(action)
+        if status:
+            parts.append(status)
+        if message:
+            parts.append(message)
+        self._set_layout_status(f'Layout: {" - ".join(parts) or text}')
 
     def _set_mission(self, mission, source):
         mission = self._normalize_mission(mission)
@@ -341,15 +377,17 @@ class MissionModeManager(Node):
             return
         try:
             import tkinter as tk
+            from tkinter import messagebox
             root = tk.Tk()
         except Exception as exc:
             self.get_logger().warn(f'mission control GUI disabled: {exc}')
             return
 
         self.tk = tk
+        self.messagebox = messagebox
         self.root = root
         root.title('Mission Control')
-        root.geometry('380x360+80+80')
+        root.geometry('420x460+80+80')
         root.configure(bg='#202226')
         root.protocol('WM_DELETE_WINDOW', root.iconify)
         root.bind('<Key>', self._on_key_press)
@@ -403,6 +441,46 @@ class MissionModeManager(Node):
         summary.pack(fill='both', expand=True, padx=16, pady=(12, 4))
         self.gui_widgets['summary'] = summary
 
+        layout_title = tk.Label(
+            root,
+            text='Window Layout',
+            bg='#202226',
+            fg='#d7dde2',
+            font=('Helvetica', 11, 'bold'),
+            anchor='w',
+        )
+        layout_title.pack(fill='x', padx=16, pady=(6, 2))
+
+        layout_frame = tk.Frame(root, bg='#202226')
+        layout_frame.pack(fill='x', padx=14, pady=(0, 4))
+        layout_buttons = [
+            ('Save', lambda: self._publish_layout_command('save')),
+            ('Restore', lambda: self._publish_layout_command('restore')),
+            ('Reset', self._confirm_reset_layout),
+        ]
+        for text, command in layout_buttons:
+            button = tk.Button(
+                layout_frame,
+                text=text,
+                width=10,
+                height=1,
+                command=command,
+                font=('Helvetica', 10, 'bold'),
+            )
+            button.pack(side='left', padx=4)
+
+        layout_status = tk.Label(
+            root,
+            text='Layout: ready',
+            bg='#202226',
+            fg='#9ca6af',
+            font=('Helvetica', 10),
+            anchor='w',
+            wraplength=380,
+        )
+        layout_status.pack(fill='x', padx=16, pady=(0, 8))
+        self.gui_widgets['layout_status'] = layout_status
+
         hint = tk.Label(
             root,
             text='Keys: A / B / C / D',
@@ -418,6 +496,35 @@ class MissionModeManager(Node):
         mission = self._normalize_mission(getattr(event, 'char', ''))
         if mission is not None:
             self._set_mission(mission, 'keyboard')
+
+    def _publish_layout_command(self, command):
+        command = str(command or '').strip().lower()
+        if not command:
+            return
+        if self.layout_command_pub is None:
+            self._set_layout_status('Layout: command topic disabled')
+            self.get_logger().warn('layout command topic is disabled')
+            return
+        msg = String()
+        msg.data = command
+        self.layout_command_pub.publish(msg)
+        self._set_layout_status(f'Layout: {command} requested')
+        self.get_logger().info(f'layout command requested: {command}')
+
+    def _confirm_reset_layout(self):
+        if self.messagebox is not None:
+            confirmed = self.messagebox.askyesno(
+                'Reset Layout',
+                'Delete the saved operator window layout?',
+            )
+            if not confirmed:
+                return
+        self._publish_layout_command('reset')
+
+    def _set_layout_status(self, text):
+        label = self.gui_widgets.get('layout_status')
+        if label is not None:
+            label.configure(text=str(text))
 
     def _update_gui(self):
         if self.root is None:

@@ -111,7 +111,7 @@ def generate_launch_description():
                 'config',
                 'operator_screen_layout.yaml',
             ])),
-        DeclareLaunchArgument('operator_layout_action', default_value='restore'),
+        DeclareLaunchArgument('operator_layout_action', default_value='server'),
         DeclareLaunchArgument(
             'operator_layout_store_path',
             default_value='~/.config/ffw_teleop/operator_screen_layout.json'),
