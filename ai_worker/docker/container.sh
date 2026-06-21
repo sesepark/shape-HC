@@ -1,7 +1,11 @@
 #!/bin/bash
 
 # Get the directory where the script is located
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -P )"
+AI_WORKER_SOURCE_DIR="${AI_WORKER_SOURCE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd -P)}"
+AI_WORKER_WORKSPACE_DIR="${AI_WORKER_WORKSPACE_DIR:-${SCRIPT_DIR}/workspace}"
+export AI_WORKER_SOURCE_DIR
+export AI_WORKER_WORKSPACE_DIR
 CONTAINER_NAME="ai_worker"
 GITHUB_RELEASES_API="https://api.github.com/repos/ROBOTIS-GIT/ai_worker/releases/latest"
 META_PACKAGE_XML="${SCRIPT_DIR}/../ffw/package.xml"
@@ -22,8 +26,40 @@ show_help() {
     echo "  $0 stop                 Stop the container"
 }
 
+ensure_source_tree() {
+    if [ ! -f "${AI_WORKER_SOURCE_DIR}/ffw_bringup/package.xml" ] ||
+       [ ! -f "${AI_WORKER_SOURCE_DIR}/ffw_teleop/package.xml" ]; then
+        echo "Error: AI_WORKER_SOURCE_DIR does not look like an ai_worker source tree:"
+        echo "  ${AI_WORKER_SOURCE_DIR}"
+        echo "Expected:"
+        echo "  ffw_bringup/package.xml"
+        echo "  ffw_teleop/package.xml"
+        exit 1
+    fi
+}
+
+ensure_container_mount() {
+    local current_source
+    current_source=$(docker inspect "$CONTAINER_NAME" \
+        --format '{{range .Mounts}}{{if eq .Destination "/root/ros2_ws/src/ai_worker"}}{{.Source}}{{end}}{{end}}' \
+        2>/dev/null || true)
+    if [ -n "${current_source}" ] && [ "${current_source}" != "${AI_WORKER_SOURCE_DIR}" ]; then
+        echo "Error: running container mounts a different ai_worker source tree."
+        echo "  current:  ${current_source}"
+        echo "  expected: ${AI_WORKER_SOURCE_DIR}"
+        echo "Stop and remove it, then start again from this source tree:"
+        echo "  docker stop ${CONTAINER_NAME}"
+        echo "  docker rm ${CONTAINER_NAME}"
+        echo "  ${SCRIPT_DIR}/container.sh start"
+        exit 1
+    fi
+}
+
 # Function to start the container
 start_container() {
+    ensure_source_tree
+    ensure_container_mount
+
     # Set up X11 forwarding only if DISPLAY is set
     if [ -n "$DISPLAY" ]; then
         echo "Setting up X11 forwarding..."
@@ -59,6 +95,9 @@ start_container() {
 
 # Function to enter the container
 enter_container() {
+    ensure_source_tree
+    ensure_container_mount
+
     # Set up X11 forwarding only if DISPLAY is set
     if [ -n "$DISPLAY" ]; then
         echo "Setting up X11 forwarding..."

@@ -22,7 +22,7 @@ services:
       - /usr/local/zed/settings/:/usr/local/zed/settings/
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /tmp/.docker.xauth:/tmp/.docker.xauth:rw
-      - ./workspace:/workspace
-      - ../:/root/ros2_ws/src/ai_worker/
+      - ${AI_WORKER_WORKSPACE_DIR:-./workspace}:/workspace
+      - ${AI_WORKER_SOURCE_DIR:-..}:/root/ros2_ws/src/ai_worker/
       - /var/run/robotis/agent_sockets/ai_worker:/var/run/agent
     privileged: true
