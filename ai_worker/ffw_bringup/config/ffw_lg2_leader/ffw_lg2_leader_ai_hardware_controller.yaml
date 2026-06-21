@@ -109,3 +109,6 @@
       sensorxel_l_joy_jog_scale: 0.06
       sensorxel_r_joy_jog_scale: 0.01
       deadzone: 0.10
+      swerve_linear_x_max_mps: 0.18
+      swerve_linear_y_max_mps: 0.18
+      swerve_angular_z_max_radps: 0.30

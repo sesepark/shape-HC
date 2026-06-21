@@ -34,8 +34,8 @@ def make_wrist_camera_launch(condition):
             'enable_depth2': 'true',
             'enable_color1': LaunchConfiguration('enable_left_color'),
             'enable_color2': LaunchConfiguration('enable_right_color'),
-            'align_depth.enable1': 'false',
-            'align_depth.enable2': 'false',
+            'align_depth.enable1': LaunchConfiguration('enable_left_align_depth'),
+            'align_depth.enable2': LaunchConfiguration('enable_right_align_depth'),
             'pointcloud.enable1': 'false',
             'pointcloud.enable2': 'false',
             'colorizer.enable1': 'false',
@@ -56,6 +56,7 @@ def profile_value(stable_low_latency, wired_360_default, precision_one_wrist, de
 
 def generate_launch_description():
     start_zed = LaunchConfiguration('start_zed')
+    start_zed_depth_assist = LaunchConfiguration('start_zed_depth_assist')
     start_overlay = LaunchConfiguration('start_overlay')
     start_left_overlay = LaunchConfiguration('start_left_overlay')
     start_alignment_monitor = LaunchConfiguration('start_alignment_monitor')
@@ -92,6 +93,36 @@ def generate_launch_description():
                 "' == 'true'",
             ])
         )
+    )
+
+    zed_depth_assist_node = Node(
+        package='ffw_teleop',
+        executable='zed_depth_assist',
+        name='zed_depth_assist',
+        output='screen',
+        condition=IfCondition(
+            PythonExpression([
+                "'",
+                start_zed,
+                "' == 'true' and '",
+                start_zed_depth_assist,
+                "' == 'true'",
+            ])
+        ),
+        parameters=[{
+            'depth_topic': LaunchConfiguration('zed_depth_topic'),
+            'base_image_topic': LaunchConfiguration('zed_base_image_topic'),
+            'assist_topic': LaunchConfiguration('zed_assist_topic'),
+            'metrics_topic': LaunchConfiguration('zed_metrics_topic'),
+            'publish_fps': LaunchConfiguration('zed_assist_fps'),
+            'jpeg_quality': LaunchConfiguration('zed_assist_jpeg_quality'),
+            'min_depth_m': LaunchConfiguration('zed_min_depth_m'),
+            'max_depth_m': LaunchConfiguration('zed_max_depth_m'),
+            'center_roi_px': LaunchConfiguration('zed_center_roi_px'),
+            'contour_near_depth_m': LaunchConfiguration('zed_contour_near_depth_m'),
+            'contour_min_area_px': LaunchConfiguration('zed_contour_min_area_px'),
+            'base_image_timeout_s': LaunchConfiguration('zed_base_image_timeout_s'),
+        }],
     )
 
     right_overlay_node = Node(
@@ -133,6 +164,17 @@ def generate_launch_description():
             'assist_offset_threshold_px': LaunchConfiguration('assist_offset_threshold_px'),
             'assist_target_depth_m': LaunchConfiguration('assist_target_depth_m'),
             'assist_depth_tolerance_m': LaunchConfiguration('assist_depth_tolerance_m'),
+            'view_preset': LaunchConfiguration('right_view_preset'),
+            'view_rotate_deg': LaunchConfiguration('right_view_rotate_deg'),
+            'view_flip_horizontal': LaunchConfiguration('right_view_flip_horizontal'),
+            'view_flip_vertical': LaunchConfiguration('right_view_flip_vertical'),
+            'band_red_max_m': LaunchConfiguration('band_red_max_m'),
+            'band_green_min_m': LaunchConfiguration('band_green_min_m'),
+            'band_green_max_m': LaunchConfiguration('band_green_max_m'),
+            'band_orange_min_m': LaunchConfiguration('band_orange_min_m'),
+            'band_orange_max_m': LaunchConfiguration('band_orange_max_m'),
+            'band_alpha': LaunchConfiguration('band_alpha'),
+            'band_min_area_px': LaunchConfiguration('band_min_area_px'),
         }],
     )
 
@@ -175,6 +217,17 @@ def generate_launch_description():
             'assist_offset_threshold_px': LaunchConfiguration('assist_offset_threshold_px'),
             'assist_target_depth_m': LaunchConfiguration('assist_target_depth_m'),
             'assist_depth_tolerance_m': LaunchConfiguration('assist_depth_tolerance_m'),
+            'view_preset': LaunchConfiguration('left_view_preset'),
+            'view_rotate_deg': LaunchConfiguration('left_view_rotate_deg'),
+            'view_flip_horizontal': LaunchConfiguration('left_view_flip_horizontal'),
+            'view_flip_vertical': LaunchConfiguration('left_view_flip_vertical'),
+            'band_red_max_m': LaunchConfiguration('band_red_max_m'),
+            'band_green_min_m': LaunchConfiguration('band_green_min_m'),
+            'band_green_max_m': LaunchConfiguration('band_green_max_m'),
+            'band_orange_min_m': LaunchConfiguration('band_orange_min_m'),
+            'band_orange_max_m': LaunchConfiguration('band_orange_max_m'),
+            'band_alpha': LaunchConfiguration('band_alpha'),
+            'band_min_area_px': LaunchConfiguration('band_min_area_px'),
         }],
     )
 
@@ -226,9 +279,32 @@ def generate_launch_description():
         DeclareLaunchArgument('start_overlay', default_value='true'),
         DeclareLaunchArgument('start_left_overlay', default_value='true'),
         DeclareLaunchArgument('start_alignment_monitor', default_value='true'),
+        DeclareLaunchArgument('start_zed_depth_assist', default_value='true'),
         DeclareLaunchArgument('zed_camera_model', default_value='zedm'),
         DeclareLaunchArgument('zed_camera_name', default_value='zed'),
-        DeclareLaunchArgument('zed_ros_params_override_path', default_value=''),
+        DeclareLaunchArgument(
+            'zed_ros_params_override_path',
+            default_value=PathJoinSubstitution([
+                FindPackageShare('ffw_teleop'),
+                'config',
+                'zed_teleop_depth.yaml',
+            ])),
+        DeclareLaunchArgument(
+            'zed_depth_topic', default_value='/zed/zed_node/depth/depth_registered'),
+        DeclareLaunchArgument(
+            'zed_base_image_topic', default_value='/zed/zed_node/left/image_rect_color'),
+        DeclareLaunchArgument(
+            'zed_assist_topic', default_value='/teleop/zed/depth_assist/compressed'),
+        DeclareLaunchArgument(
+            'zed_metrics_topic', default_value='/teleop/zed/depth_metrics'),
+        DeclareLaunchArgument('zed_assist_fps', default_value='10.0'),
+        DeclareLaunchArgument('zed_assist_jpeg_quality', default_value='75'),
+        DeclareLaunchArgument('zed_min_depth_m', default_value='0.15'),
+        DeclareLaunchArgument('zed_max_depth_m', default_value='4.0'),
+        DeclareLaunchArgument('zed_center_roi_px', default_value='56'),
+        DeclareLaunchArgument('zed_contour_near_depth_m', default_value='1.20'),
+        DeclareLaunchArgument('zed_contour_min_area_px', default_value='120.0'),
+        DeclareLaunchArgument('zed_base_image_timeout_s', default_value='0.5'),
         DeclareLaunchArgument(
             'left_depth_profile',
             default_value=profile_value('480,270,15', '480,270,30', '480,270,15', '480,270,30')),
@@ -243,12 +319,15 @@ def generate_launch_description():
             default_value=profile_value('424,240,15', '424,240,15', '424,240,15', '424,240,30')),
         DeclareLaunchArgument(
             'enable_left_color',
-            default_value=profile_value('false', 'false', 'false', 'true')),
+            default_value=profile_value('true', 'true', 'true', 'true')),
         DeclareLaunchArgument(
             'enable_right_color',
-            default_value=profile_value('false', 'false', 'false', 'true')),
+            default_value=profile_value('true', 'true', 'true', 'true')),
+        DeclareLaunchArgument('enable_left_align_depth', default_value='true'),
+        DeclareLaunchArgument('enable_right_align_depth', default_value='true'),
         DeclareLaunchArgument(
-            'depth_topic', default_value='/camera_right/camera_right/depth/image_rect_raw'),
+            'depth_topic',
+            default_value='/camera_right/camera_right/aligned_depth_to_color/image_raw'),
         DeclareLaunchArgument(
             'base_image_topic', default_value='/camera_right/camera_right/color/image_raw'),
         DeclareLaunchArgument(
@@ -264,7 +343,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'metrics_topic', default_value='/teleop/wrist_right/depth_metrics'),
         DeclareLaunchArgument(
-            'left_depth_topic', default_value='/camera_left/camera_left/depth/image_rect_raw'),
+            'left_depth_topic',
+            default_value='/camera_left/camera_left/aligned_depth_to_color/image_raw'),
         DeclareLaunchArgument(
             'left_base_image_topic', default_value='/camera_left/camera_left/color/image_raw'),
         DeclareLaunchArgument(
@@ -293,7 +373,7 @@ def generate_launch_description():
             'overlay_fps',
             default_value=profile_value('10.0', '15.0', '15.0', '15.0')),
         DeclareLaunchArgument('depth_scale', default_value='0.001'),
-        DeclareLaunchArgument('min_depth_m', default_value='0.07'),
+        DeclareLaunchArgument('min_depth_m', default_value='0.03'),
         DeclareLaunchArgument('max_depth_m', default_value='0.70'),
         DeclareLaunchArgument('roi_size_px', default_value='32'),
         DeclareLaunchArgument(
@@ -312,6 +392,21 @@ def generate_launch_description():
         DeclareLaunchArgument('assist_offset_threshold_px', default_value='24'),
         DeclareLaunchArgument('assist_target_depth_m', default_value='0.30'),
         DeclareLaunchArgument('assist_depth_tolerance_m', default_value='0.04'),
+        DeclareLaunchArgument('left_view_preset', default_value='driver_180'),
+        DeclareLaunchArgument('right_view_preset', default_value='driver_180'),
+        DeclareLaunchArgument('left_view_rotate_deg', default_value='180.0'),
+        DeclareLaunchArgument('right_view_rotate_deg', default_value='180.0'),
+        DeclareLaunchArgument('left_view_flip_horizontal', default_value='false'),
+        DeclareLaunchArgument('right_view_flip_horizontal', default_value='false'),
+        DeclareLaunchArgument('left_view_flip_vertical', default_value='false'),
+        DeclareLaunchArgument('right_view_flip_vertical', default_value='false'),
+        DeclareLaunchArgument('band_red_max_m', default_value='0.06'),
+        DeclareLaunchArgument('band_green_min_m', default_value='0.06'),
+        DeclareLaunchArgument('band_green_max_m', default_value='0.10'),
+        DeclareLaunchArgument('band_orange_min_m', default_value='0.10'),
+        DeclareLaunchArgument('band_orange_max_m', default_value='0.15'),
+        DeclareLaunchArgument('band_alpha', default_value='0.45'),
+        DeclareLaunchArgument('band_min_area_px', default_value='20.0'),
         DeclareLaunchArgument('right_goal_topic', default_value='/r_goal_pose'),
         DeclareLaunchArgument('left_goal_topic', default_value='/l_goal_pose'),
         DeclareLaunchArgument('right_current_topic', default_value='/r_gripper_pose'),
@@ -346,6 +441,7 @@ def generate_launch_description():
         DeclareLaunchArgument('table_y_m', default_value='0.0'),
         DeclareLaunchArgument('table_yaw_deg', default_value='0.0'),
         zed_camera_launch,
+        zed_depth_assist_node,
         wrist_camera_launch_after_zed,
         wrist_camera_launch_without_zed,
         right_overlay_node,

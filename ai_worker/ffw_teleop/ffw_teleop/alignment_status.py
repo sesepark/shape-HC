@@ -214,6 +214,7 @@ class AlignmentStatus(Node):
             'all_ok': all_ok,
             'center_distance_m': self._center_distance_snapshot(),
             'depth_metrics': self._depth_metrics_snapshot(),
+            'head': self._head_snapshot(),
             'table_relative': self._table_relative_snapshot(),
         }
         self.latest_alignment_status = payload
@@ -240,6 +241,7 @@ class AlignmentStatus(Node):
             'cmd_vel': self._cmd_vel_snapshot(),
             'center_distance_m': self._center_distance_snapshot(),
             'depth_metrics': self._depth_metrics_snapshot(),
+            'head': self._head_snapshot(),
             'table_relative': self._table_relative_snapshot(),
             'alignment': self.latest_alignment_status,
         }
@@ -275,7 +277,7 @@ class AlignmentStatus(Node):
             return
 
         width = 560
-        height = 196
+        height = 236
         image = np.full((height, width, 3), (34, 36, 40), dtype=np.uint8)
         mode = str(payload.get('mode') or 'unknown').strip()
         mode_key = mode.lower()
@@ -292,6 +294,14 @@ class AlignmentStatus(Node):
         self._put_panel_text(
             image, mode_label, (350, 38), 0.70, (255, 255, 255), 2)
 
+        head = payload.get('head') or {}
+        head_state = 'HOLD' if mode_key == 'swerve' else 'ACTIVE'
+        head_text = (
+            f'HEAD: J1 {self._format_joint(head.get("head_joint1"))} '
+            f'J2 {self._format_joint(head.get("head_joint2"))} {head_state}'
+        )
+        self._put_panel_text(image, head_text, (16, 84), 0.54, (236, 241, 245), 1)
+
         depth_metrics = payload.get('depth_metrics') or {}
         distances = payload.get('center_distance_m') or {}
         left_metric = depth_metrics.get('left') or {}
@@ -301,16 +311,21 @@ class AlignmentStatus(Node):
         left_hint = str(left_metric.get('hint') or '--')
         right_hint = str(right_metric.get('hint') or '--')
         self._put_panel_text(
-            image, f'L DEPTH: {left_distance} {left_hint}', (16, 91), 0.54, (236, 241, 245), 1)
+            image, f'L DEPTH: {left_distance} {left_hint}', (16, 118), 0.54, (236, 241, 245), 1)
         self._put_panel_text(
-            image, f'R DEPTH: {right_distance} {right_hint}', (292, 91), 0.54, (236, 241, 245), 1)
+            image, f'R DEPTH: {right_distance} {right_hint}', (292, 118), 0.54, (236, 241, 245), 1)
 
         left_offset = self._format_offset(left_metric)
         right_offset = self._format_offset(right_metric)
         self._put_panel_text(
-            image, f'L OFFSET: {left_offset}', (16, 125), 0.54, (236, 241, 245), 1)
+            image, f'L OFFSET: {left_offset}', (16, 152), 0.54, (236, 241, 245), 1)
         self._put_panel_text(
-            image, f'R OFFSET: {right_offset}', (292, 125), 0.54, (236, 241, 245), 1)
+            image, f'R OFFSET: {right_offset}', (292, 152), 0.54, (236, 241, 245), 1)
+
+        left_view = self._format_view(left_metric)
+        right_view = self._format_view(right_metric)
+        self._put_panel_text(
+            image, f'VIEW: L {left_view}  R {right_view}', (16, 186), 0.54, (203, 211, 218), 1)
 
         table = payload.get('table_relative')
         if table:
@@ -320,7 +335,7 @@ class AlignmentStatus(Node):
             )
         else:
             table_text = 'TABLE: --'
-        self._put_panel_text(image, table_text, (16, 162), 0.56, (203, 211, 218), 1)
+        self._put_panel_text(image, table_text, (16, 220), 0.50, (203, 211, 218), 1)
 
         ok, encoded = cv2.imencode(
             '.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), self.status_panel_jpeg_quality])
@@ -362,6 +377,24 @@ class AlignmentStatus(Node):
             return f'{int(offset_x):+d},{int(offset_y):+d}px'
         return f'{int(offset_x):+d},{int(offset_y):+d}px {float(axis):+.0f}deg'
 
+    def _format_view(self, metrics):
+        view = metrics.get('view') or {}
+        rotate = view.get('rotate_deg')
+        if rotate is None:
+            return '--'
+        flags = []
+        if view.get('flip_horizontal'):
+            flags.append('FH')
+        if view.get('flip_vertical'):
+            flags.append('FV')
+        suffix = (' ' + '/'.join(flags)) if flags else ''
+        return f'{float(rotate):.0f}deg{suffix}'
+
+    def _format_joint(self, value):
+        if value is None:
+            return '--'
+        return f'{float(value):+.2f}'
+
     def _format_arm_status(self, status):
         if not status.get('available'):
             return '--'
@@ -380,6 +413,24 @@ class AlignmentStatus(Node):
             'velocity': self._float_list(msg.velocity),
             'effort': self._float_list(msg.effort),
         }
+
+    def _head_snapshot(self):
+        msg = self.latest_joint_state
+        if msg is None:
+            return None
+        return {
+            'head_joint1': self._joint_position(msg, 'head_joint1'),
+            'head_joint2': self._joint_position(msg, 'head_joint2'),
+        }
+
+    def _joint_position(self, msg, name):
+        try:
+            index = msg.name.index(name)
+        except ValueError:
+            return None
+        if index >= len(msg.position):
+            return None
+        return self._clean_float(msg.position[index])
 
     def _odom_snapshot(self):
         msg = self.latest_odom

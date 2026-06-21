@@ -34,11 +34,6 @@ constexpr size_t TACT_SWITCH_INTERFACE_INDEX = 2;
 constexpr double TACT_SWITCH_THRESHOLD = 0.5;
 constexpr double DEFAULT_JOG_SCALE = 0.1;
 
-  // cmd_vel scaling factors
-constexpr double LINEAR_X_SCALE = 3.0;
-constexpr double LINEAR_Y_SCALE = 3.0;
-constexpr double ANGULAR_Z_SCALE = 2.0;
-
   // Sensor names
 const char LEFT_JOYSTICK_NAME[] = "sensorxel_l_joy";
 const char RIGHT_JOYSTICK_NAME[] = "sensorxel_r_joy";
@@ -239,9 +234,9 @@ void JoystickController::publish_cmd_vel(bool swerve_mode, const JoystickValues 
   geometry_msgs::msg::Twist twist_msg;
 
   if (swerve_mode) {
-    twist_msg.linear.x = -joystick_values.left_x / constants::LINEAR_X_SCALE;
-    twist_msg.linear.y = joystick_values.left_y / constants::LINEAR_Y_SCALE;
-    twist_msg.angular.z = -joystick_values.right_y / constants::ANGULAR_Z_SCALE;
+    twist_msg.linear.x = -joystick_values.left_x * params_.swerve_linear_x_max_mps;
+    twist_msg.linear.y = joystick_values.left_y * params_.swerve_linear_y_max_mps;
+    twist_msg.angular.z = -joystick_values.right_y * params_.swerve_angular_z_max_radps;
   } else {
     // Zero twist when not in swerve mode
     twist_msg.linear.x = 0.0;
@@ -459,9 +454,13 @@ controller_interface::return_type JoystickController::update(
     update_joystick_values(sensor_name, normalized_values, joystick_values,
                           left_tact_switch_pressed, right_tact_switch_pressed);
 
+    const bool joint_motion_active = swerve_mode ?
+      (sensor_name == constants::RIGHT_JOYSTICK_NAME && std::abs(joystick_values.right_x) > 0.0) :
+      any_sensorxel_joy_active;
+
     // Update last active positions when joystick becomes inactive
     bool sensor_was_active = sensor_was_active_[sensor_name];
-    if (sensor_was_active && !any_sensorxel_joy_active && !current_joint_states_.name.empty() &&
+    if (sensor_was_active && !joint_motion_active && !current_joint_states_.name.empty() &&
       !controlled_joints.empty())
     {
       for (size_t i = 0; i < controlled_joints.size(); ++i) {
@@ -481,7 +480,7 @@ controller_interface::return_type JoystickController::update(
     if (!current_joint_states_.name.empty() && !controlled_joints.empty()) {
       std::vector<double> positions;
 
-      if (swerve_mode || any_sensorxel_joy_active) {
+      if (joint_motion_active) {
         positions = calculate_joint_positions(controlled_joints, normalized_values,
                                            sensor_name, swerve_mode, joystick_values);
         // Update last active positions with new positions
@@ -495,7 +494,7 @@ controller_interface::return_type JoystickController::update(
       publish_joint_trajectory(controlled_joints, positions, sensor_name);
     }
 
-    sensor_was_active_[sensor_name] = any_sensorxel_joy_active;
+    sensor_was_active_[sensor_name] = joint_motion_active;
     sensorxel_joy_values_[sensor_idx] = normalized_values;
   }
 

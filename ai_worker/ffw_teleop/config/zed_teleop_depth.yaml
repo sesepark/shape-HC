@@ -1,0 +1,13 @@
+/**:
+  ros__parameters:
+    general:
+      pub_frame_rate: 15.0
+    depth:
+      depth_mode: 'PERFORMANCE'
+      depth_stabilization: 0
+      point_cloud_freq: 0.0
+      max_depth: 4.0
+    object_detection:
+      od_enabled: false
+    body_tracking:
+      bt_enabled: false

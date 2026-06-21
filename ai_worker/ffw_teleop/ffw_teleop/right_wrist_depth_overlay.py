@@ -49,6 +49,17 @@ class WristDepthOverlay(Node):
         self.declare_parameter('assist_offset_threshold_px', 24)
         self.declare_parameter('assist_target_depth_m', 0.30)
         self.declare_parameter('assist_depth_tolerance_m', 0.04)
+        self.declare_parameter('view_preset', 'driver_180')
+        self.declare_parameter('view_rotate_deg', 180.0)
+        self.declare_parameter('view_flip_horizontal', False)
+        self.declare_parameter('view_flip_vertical', False)
+        self.declare_parameter('band_red_max_m', 0.06)
+        self.declare_parameter('band_green_min_m', 0.06)
+        self.declare_parameter('band_green_max_m', 0.10)
+        self.declare_parameter('band_orange_min_m', 0.10)
+        self.declare_parameter('band_orange_max_m', 0.15)
+        self.declare_parameter('band_alpha', 0.45)
+        self.declare_parameter('band_min_area_px', 20.0)
 
         self.depth_topic = self.get_parameter('depth_topic').value
         self.base_image_topic = self.get_parameter('base_image_topic').value
@@ -98,6 +109,19 @@ class WristDepthOverlay(Node):
         self.assist_target_depth_m = float(self.get_parameter('assist_target_depth_m').value)
         self.assist_depth_tolerance_m = max(
             float(self.get_parameter('assist_depth_tolerance_m').value), 0.0)
+        self.view_preset = str(self.get_parameter('view_preset').value).strip() or 'custom'
+        self.view_rotate_deg = float(self.get_parameter('view_rotate_deg').value)
+        self.view_flip_horizontal = self._as_bool(
+            self.get_parameter('view_flip_horizontal').value)
+        self.view_flip_vertical = self._as_bool(
+            self.get_parameter('view_flip_vertical').value)
+        self.band_red_max_m = float(self.get_parameter('band_red_max_m').value)
+        self.band_green_min_m = float(self.get_parameter('band_green_min_m').value)
+        self.band_green_max_m = float(self.get_parameter('band_green_max_m').value)
+        self.band_orange_min_m = float(self.get_parameter('band_orange_min_m').value)
+        self.band_orange_max_m = float(self.get_parameter('band_orange_max_m').value)
+        self.band_alpha = float(np.clip(float(self.get_parameter('band_alpha').value), 0.0, 1.0))
+        self.band_min_area_px = max(float(self.get_parameter('band_min_area_px').value), 0.0)
         self.publish_period_ns = int(1_000_000_000 / self.publish_fps)
         self.last_publish_time = None
         self.last_warn_time = None
@@ -108,7 +132,7 @@ class WristDepthOverlay(Node):
         self.depth_sub = self.create_subscription(
             Image, self.depth_topic, self._depth_callback, qos_profile_sensor_data)
         self.base_image_sub = None
-        needs_base_image = self.feedback_visual_mode == 'overlay' or self.publish_base_compressed
+        needs_base_image = self.feedback_visual_mode in ('assist', 'overlay') or self.publish_base_compressed
         if self.base_image_topic and needs_base_image:
             self.base_image_sub = self.create_subscription(
                 Image, self.base_image_topic, self._base_image_callback, qos_profile_sensor_data)
@@ -135,7 +159,9 @@ class WristDepthOverlay(Node):
             f'depth={self.depth_topic}, base={self.base_image_topic or "none"} '
             f'-> raw={self.overlay_topic if self.publish_raw_overlay else "disabled"}, '
             f'overlay_compressed={self.compressed_topic}, assist={self.assist_topic}, '
-            f'base_compressed={self.base_compressed_topic if self.base_compressed_pub else "disabled"}')
+            f'base_compressed={self.base_compressed_topic if self.base_compressed_pub else "disabled"}, '
+            f'view={self.view_preset} rot={self.view_rotate_deg:.0f}deg '
+            f'flip_h={self.view_flip_horizontal} flip_v={self.view_flip_vertical}')
 
     def _resolve_colormap(self, name):
         attr = f'COLORMAP_{name.strip().upper()}'
@@ -199,14 +225,14 @@ class WristDepthOverlay(Node):
             return
 
         base_image = None
-        if needs_base_compressed or needs_raw_overlay or needs_compressed_overlay:
+        if needs_assist or needs_base_compressed or needs_raw_overlay or needs_compressed_overlay:
             base_image = self._get_base_image(depth_m.shape, now)
 
         if needs_base_compressed:
             self._publish_base_compressed_image(msg, base_image)
 
         if needs_assist:
-            assist = self._make_assist_image(depth_m, metrics, assist_draw)
+            assist = self._make_assist_image(depth_m, metrics, assist_draw, base_image)
             self._publish_assist_image(msg, assist)
 
         if not (needs_raw_overlay or needs_compressed_overlay):
@@ -463,6 +489,12 @@ class WristDepthOverlay(Node):
             'offset_y_px': nearest.get('offset_y_px'),
             'center_minus_nearest_m': relative_depth,
             'hint': hint,
+            'view': {
+                'preset': self.view_preset,
+                'rotate_deg': self._clean_float(self.view_rotate_deg, 1),
+                'flip_horizontal': self.view_flip_horizontal,
+                'flip_vertical': self.view_flip_vertical,
+            },
         }
         draw['grid_points'] = grid_points
         draw['valid'] = valid
@@ -519,81 +551,127 @@ class WristDepthOverlay(Node):
             return (60, 180, 255)
         return (70, 70, 255)
 
-    def _make_assist_image(self, depth_m, metrics, draw):
-        valid = draw.get('valid')
-        if valid is None:
-            valid = self._valid_mask(depth_m)
-        clipped = np.clip(depth_m, self.min_depth_m, self.max_depth_m)
-        normalized = np.zeros(depth_m.shape, dtype=np.uint8)
-        scale = 255.0 / max(self.max_depth_m - self.min_depth_m, 1e-6)
-        normalized[valid] = ((self.max_depth_m - clipped[valid]) * scale).astype(np.uint8)
-        image = cv2.cvtColor(normalized, cv2.COLOR_GRAY2BGR)
-        image[~valid] = (18, 18, 18)
+    def _band_valid_mask(self, depth_m):
+        return (
+            np.isfinite(depth_m) &
+            (depth_m > 0.0) &
+            (depth_m <= self.max_depth_m)
+        )
+
+    def _draw_depth_band(self, image, mask, color):
+        if not np.any(mask):
+            return
+        mask_u8 = mask.astype(np.uint8) * 255
+        kernel = np.ones((3, 3), np.uint8)
+        mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN, kernel)
+        if not np.any(mask_u8):
+            return
+
+        overlay = image.copy()
+        overlay[mask_u8 > 0] = color
+        cv2.addWeighted(overlay, self.band_alpha, image, 1.0 - self.band_alpha, 0.0, image)
+
+        contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = [
+            contour for contour in contours
+            if cv2.contourArea(contour) >= self.band_min_area_px
+        ]
+        if contours:
+            cv2.drawContours(image, contours, -1, color, 2, cv2.LINE_AA)
+
+    def _apply_view_transform(self, image):
+        transformed = image
+        angle = self.view_rotate_deg % 360.0
+        if not math.isclose(angle, 0.0, abs_tol=1e-3):
+            height, width = transformed.shape[:2]
+            center = (width / 2.0, height / 2.0)
+            matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+            cos = abs(matrix[0, 0])
+            sin = abs(matrix[0, 1])
+            new_width = int((height * sin) + (width * cos))
+            new_height = int((height * cos) + (width * sin))
+            matrix[0, 2] += (new_width / 2.0) - center[0]
+            matrix[1, 2] += (new_height / 2.0) - center[1]
+            transformed = cv2.warpAffine(
+                transformed,
+                matrix,
+                (new_width, new_height),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(0, 0, 0),
+            )
+
+        flip_code = None
+        if self.view_flip_horizontal and self.view_flip_vertical:
+            flip_code = -1
+        elif self.view_flip_horizontal:
+            flip_code = 1
+        elif self.view_flip_vertical:
+            flip_code = 0
+        if flip_code is not None:
+            transformed = cv2.flip(transformed, flip_code)
+        return np.ascontiguousarray(transformed)
+
+    def _make_assist_image(self, depth_m, metrics, draw, base_image):
+        if base_image is None:
+            base_image = self._depth_grayscale_base(depth_m.shape)
+        if base_image.shape[:2] != depth_m.shape[:2]:
+            height, width = depth_m.shape[:2]
+            base_image = cv2.resize(base_image, (width, height), interpolation=cv2.INTER_LINEAR)
+        image = np.ascontiguousarray(base_image.copy())
+
+        valid = self._band_valid_mask(depth_m)
+        red_mask = valid & (depth_m < self.band_red_max_m)
+        green_mask = (
+            valid &
+            (depth_m >= self.band_green_min_m) &
+            (depth_m < self.band_green_max_m)
+        )
+        orange_mask = (
+            valid &
+            (depth_m >= self.band_orange_min_m) &
+            (depth_m <= self.band_orange_max_m)
+        )
+
+        self._draw_depth_band(image, orange_mask, (0, 140, 255))
+        self._draw_depth_band(image, green_mask, (0, 220, 0))
+        self._draw_depth_band(image, red_mask, (0, 0, 255))
 
         height, width = depth_m.shape[:2]
         center = (width // 2, height // 2)
-        hint = str(metrics.get('hint') or 'CHECK')
-        hint_color = self._hint_color(hint)
-
-        grid_points = draw.get('grid_points', {})
-        grid_values = metrics.get('grid_m') or {}
-        half = max(self.roi_size_px // 2, 1)
-        for label, point in grid_points.items():
-            x, y = point
-            value = grid_values.get(label)
-            color = (130, 130, 130)
-            thickness = 1
-            if label == 'mc':
-                color = (255, 255, 255)
-                thickness = 2
-            cv2.rectangle(
-                image,
-                (max(x - half, 0), max(y - half, 0)),
-                (min(x + half, width - 1), min(y + half, height - 1)),
-                color,
-                thickness,
-            )
-            self._put_text(image, self._format_depth(value), (x - half, max(y - half - 4, 12)), 0.35)
-
-        contour = draw.get('contour')
-        if contour is not None:
-            cv2.drawContours(image, [contour], -1, hint_color, 2, cv2.LINE_AA)
+        cv2.drawMarker(image, center, (255, 255, 255), cv2.MARKER_CROSS, 20, 1)
 
         nearest_center = draw.get('center')
         if nearest_center is not None:
-            cv2.circle(image, nearest_center, 5, hint_color, -1, cv2.LINE_AA)
-            cv2.line(image, center, nearest_center, hint_color, 1, cv2.LINE_AA)
+            cv2.circle(image, nearest_center, 5, (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.line(image, center, nearest_center, (255, 255, 255), 1, cv2.LINE_AA)
 
-        axis_direction = draw.get('axis_direction')
-        if nearest_center is not None and axis_direction is not None:
-            dx = int(round(axis_direction[0] * 55))
-            dy = int(round(axis_direction[1] * 55))
-            cv2.line(
-                image,
-                (nearest_center[0] - dx, nearest_center[1] - dy),
-                (nearest_center[0] + dx, nearest_center[1] + dy),
-                (255, 255, 0),
-                2,
-                cv2.LINE_AA,
-            )
-
-        cv2.drawMarker(image, center, (255, 255, 255), cv2.MARKER_CROSS, 20, 1)
-        cv2.rectangle(image, (0, 0), (width - 1, 58), (20, 20, 20), -1)
-        cv2.rectangle(image, (0, 0), (width - 1, 58), hint_color, 2)
+        image = self._apply_view_transform(image)
+        height, width = image.shape[:2]
+        cv2.rectangle(image, (0, 0), (width - 1, 62), (16, 18, 20), -1)
+        cv2.rectangle(image, (0, 0), (width - 1, 62), (230, 230, 230), 1)
 
         center_text = self._format_depth(metrics.get('center_m'))
-        offset_x = metrics.get('offset_x_px')
-        offset_y = metrics.get('offset_y_px')
-        axis = metrics.get('axis_angle_deg')
-        offset_text = (
-            f'OFF {offset_x:+d},{offset_y:+d}px' if
-            offset_x is not None and offset_y is not None else 'OFF --'
+        nearest_text = self._format_depth(metrics.get('nearest_depth_m'))
+        view_text = (
+            f'{self.side.upper()} {self.view_preset} ROT {self.view_rotate_deg:.0f}deg '
+            f'FH {int(self.view_flip_horizontal)} FV {int(self.view_flip_vertical)}'
         )
-        axis_text = f'AXIS {float(axis):+.1f}deg' if axis is not None else 'AXIS --'
+        self._put_text(image, view_text, (8, 24), 0.50)
         self._put_text(
-            image, f'{self.side.upper()} {hint} CENTER {center_text}m', (8, 24), 0.58)
-        self._put_text(
-            image, f'{offset_text}  {axis_text}', (8, 49), 0.50)
+            image,
+            f'CENTER {center_text}m  NEAR {nearest_text}m',
+            (8, 48),
+            0.46,
+        )
+
+        legend_y = height - 12
+        self._put_text(image, '10-15cm', (8, legend_y), 0.42)
+        cv2.rectangle(image, (90, max(legend_y - 12, 0)), (112, legend_y - 2), (0, 140, 255), -1)
+        self._put_text(image, '6-10cm', (124, legend_y), 0.42)
+        cv2.rectangle(image, (200, max(legend_y - 12, 0)), (222, legend_y - 2), (0, 220, 0), -1)
+        self._put_text(image, '<6cm', (234, legend_y), 0.42)
+        cv2.rectangle(image, (286, max(legend_y - 12, 0)), (308, legend_y - 2), (0, 0, 255), -1)
         return np.ascontiguousarray(image)
 
     def _make_overlay(self, depth_m, center_distance, base_image):
