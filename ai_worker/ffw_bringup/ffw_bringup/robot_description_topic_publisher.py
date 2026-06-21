@@ -11,7 +11,7 @@ class RobotDescriptionTopicPublisher(Node):
     def __init__(self):
         super().__init__('robot_description_topic_publisher')
         self.declare_parameter('robot_description', '')
-        self.declare_parameter('publish_period_sec', 0.0)
+        self.declare_parameter('publish_period_sec', 1.0)
 
         description = self.get_parameter('robot_description').value
         publish_period_sec = self.get_parameter('publish_period_sec').value
