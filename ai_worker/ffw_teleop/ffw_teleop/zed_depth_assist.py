@@ -4,11 +4,15 @@ import math
 import cv2
 import numpy as np
 import rclpy
+from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.time import Time
+from sensor_msgs.msg import CameraInfo
 from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
+import tf2_ros
 
 
 class ZedDepthAssist(Node):
@@ -18,6 +22,7 @@ class ZedDepthAssist(Node):
 
         self.declare_parameter('depth_topic', '/zed/zed_node/depth/depth_registered')
         self.declare_parameter('base_image_topic', '/zed/zed_node/left/image_rect_color')
+        self.declare_parameter('camera_info_topic', '/zed/zed_node/left/camera_info')
         self.declare_parameter('assist_topic', '/teleop/zed/depth_assist/compressed')
         self.declare_parameter('metrics_topic', '/teleop/zed/depth_metrics')
         self.declare_parameter('publish_fps', 10.0)
@@ -25,13 +30,40 @@ class ZedDepthAssist(Node):
         self.declare_parameter('depth_scale', 0.001)
         self.declare_parameter('min_depth_m', 0.15)
         self.declare_parameter('max_depth_m', 4.0)
-        self.declare_parameter('center_roi_px', 56)
-        self.declare_parameter('contour_near_depth_m', 1.20)
-        self.declare_parameter('contour_min_area_px', 120.0)
         self.declare_parameter('base_image_timeout_s', 0.5)
+        self.declare_parameter('camera_optical_frame', '')
+        self.declare_parameter('camera_frame_fallbacks', [
+            'zedm_left_camera_optical_frame',
+            'zed_left_camera_optical_frame',
+        ])
+        self.declare_parameter('use_latest_tf', True)
+        self.declare_parameter('tf_lookup_timeout_s', 0.005)
+        self.declare_parameter('left_hand_frame', 'end_effector_l_link')
+        self.declare_parameter('right_hand_frame', 'end_effector_r_link')
+        self.declare_parameter('left_arm_links', [
+            'arm_l_link4',
+            'arm_l_link5',
+            'arm_l_link6',
+            'arm_l_link7',
+            'end_effector_l_link',
+        ])
+        self.declare_parameter('right_arm_links', [
+            'arm_r_link4',
+            'arm_r_link5',
+            'arm_r_link6',
+            'arm_r_link7',
+            'end_effector_r_link',
+        ])
+        self.declare_parameter('hand_roi_radius_px', 110)
+        self.declare_parameter('robot_mask_radius_px', 22)
+        self.declare_parameter('robot_mask_dilate_px', 18)
+        self.declare_parameter('near_hand_radius_m', 0.35)
+        self.declare_parameter('max_objects_per_hand', 3)
+        self.declare_parameter('component_min_area_px', 80.0)
 
         self.depth_topic = str(self.get_parameter('depth_topic').value).strip()
         self.base_image_topic = str(self.get_parameter('base_image_topic').value).strip()
+        self.camera_info_topic = str(self.get_parameter('camera_info_topic').value).strip()
         self.assist_topic = str(self.get_parameter('assist_topic').value).strip()
         self.metrics_topic = str(self.get_parameter('metrics_topic').value).strip()
         self.publish_fps = max(float(self.get_parameter('publish_fps').value), 0.1)
@@ -39,12 +71,33 @@ class ZedDepthAssist(Node):
         self.depth_scale = float(self.get_parameter('depth_scale').value)
         self.min_depth_m = float(self.get_parameter('min_depth_m').value)
         self.max_depth_m = float(self.get_parameter('max_depth_m').value)
-        self.center_roi_px = max(int(self.get_parameter('center_roi_px').value), 8)
-        self.contour_near_depth_m = float(self.get_parameter('contour_near_depth_m').value)
-        self.contour_min_area_px = max(
-            float(self.get_parameter('contour_min_area_px').value), 0.0)
         self.base_image_timeout_s = max(
             float(self.get_parameter('base_image_timeout_s').value), 0.0)
+        self.camera_optical_frame = str(self.get_parameter('camera_optical_frame').value).strip()
+        self.camera_frame_fallbacks = [
+            str(frame).strip() for frame in self.get_parameter('camera_frame_fallbacks').value
+            if str(frame).strip()
+        ]
+        self.use_latest_tf = self._as_bool(self.get_parameter('use_latest_tf').value)
+        tf_timeout_s = max(float(self.get_parameter('tf_lookup_timeout_s').value), 0.0)
+        self.tf_lookup_timeout = Duration(nanoseconds=int(tf_timeout_s * 1_000_000_000))
+        self.left_hand_frame = str(self.get_parameter('left_hand_frame').value).strip()
+        self.right_hand_frame = str(self.get_parameter('right_hand_frame').value).strip()
+        self.left_arm_links = [
+            str(frame).strip() for frame in self.get_parameter('left_arm_links').value
+            if str(frame).strip()
+        ]
+        self.right_arm_links = [
+            str(frame).strip() for frame in self.get_parameter('right_arm_links').value
+            if str(frame).strip()
+        ]
+        self.hand_roi_radius_px = max(int(self.get_parameter('hand_roi_radius_px').value), 12)
+        self.robot_mask_radius_px = max(int(self.get_parameter('robot_mask_radius_px').value), 1)
+        self.robot_mask_dilate_px = max(int(self.get_parameter('robot_mask_dilate_px').value), 0)
+        self.near_hand_radius_m = max(float(self.get_parameter('near_hand_radius_m').value), 0.05)
+        self.max_objects_per_hand = max(int(self.get_parameter('max_objects_per_hand').value), 1)
+        self.component_min_area_px = max(
+            float(self.get_parameter('component_min_area_px').value), 1.0)
 
         self.publish_period_ns = int(1_000_000_000 / self.publish_fps)
         self.last_publish_time = None
@@ -52,18 +105,33 @@ class ZedDepthAssist(Node):
         self.latest_base_image = None
         self.latest_base_image_time = None
         self.latest_base_image_header = None
+        self.latest_camera_info = None
+        self.latest_intrinsics = None
+
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         self.depth_sub = self.create_subscription(
             Image, self.depth_topic, self._depth_callback, qos_profile_sensor_data)
         self.base_sub = self.create_subscription(
             Image, self.base_image_topic, self._base_image_callback, qos_profile_sensor_data)
+        self.info_sub = self.create_subscription(
+            CameraInfo, self.camera_info_topic, self._camera_info_callback, qos_profile_sensor_data)
         self.assist_pub = self.create_publisher(
             CompressedImage, self.assist_topic, qos_profile_sensor_data)
         self.metrics_pub = self.create_publisher(String, self.metrics_topic, 10)
 
         self.get_logger().info(
-            f'ZED depth assist: depth={self.depth_topic}, base={self.base_image_topic} '
+            f'ZED arm-relative depth assist: depth={self.depth_topic}, '
+            f'base={self.base_image_topic}, info={self.camera_info_topic} '
             f'-> {self.assist_topic} at {self.publish_fps:.1f} fps')
+
+    def _as_bool(self, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ('1', 'true', 'yes', 'on')
+        return bool(value)
 
     def _warn_throttled(self, message):
         now = self.get_clock().now()
@@ -79,6 +147,18 @@ class ZedDepthAssist(Node):
         self.latest_base_image_time = self.get_clock().now()
         self.latest_base_image_header = msg.header
 
+    def _camera_info_callback(self, msg):
+        self.latest_camera_info = msg
+        self.latest_intrinsics = {
+            'frame_id': msg.header.frame_id,
+            'width': int(msg.width),
+            'height': int(msg.height),
+            'fx': float(msg.k[0]),
+            'fy': float(msg.k[4]),
+            'cx': float(msg.k[2]),
+            'cy': float(msg.k[5]),
+        }
+
     def _depth_callback(self, msg):
         now = self.get_clock().now()
         if (self.last_publish_time is not None and
@@ -90,14 +170,14 @@ class ZedDepthAssist(Node):
         if depth_m is None:
             return
 
-        metrics, draw = self._depth_metrics(depth_m, msg.header.stamp)
+        metrics, draw = self._arm_relative_metrics(depth_m, msg)
         self._publish_metrics(metrics)
 
         if self.count_subscribers(self.assist_topic) <= 0:
             return
 
         base = self._get_base_image(depth_m.shape, now)
-        image = self._make_assist_image(depth_m, metrics, draw, base)
+        image = self._make_assist_image(metrics, draw, base)
         self._publish_jpeg(msg.header, image)
 
     def _image_to_bgr(self, msg):
@@ -179,19 +259,6 @@ class ZedDepthAssist(Node):
             (depth_m <= self.max_depth_m)
         )
 
-    def _median_depth_at(self, depth_m, cx, cy, size_px):
-        height, width = depth_m.shape[:2]
-        half = max(size_px // 2, 1)
-        x0 = max(int(cx) - half, 0)
-        x1 = min(int(cx) + half, width)
-        y0 = max(int(cy) - half, 0)
-        y1 = min(int(cy) + half, height)
-        roi = depth_m[y0:y1, x0:x1]
-        valid = self._valid_mask(roi)
-        if not np.any(valid):
-            return float('nan')
-        return float(np.median(roi[valid]))
-
     def _clean_float(self, value, digits=4):
         if value is None:
             return None
@@ -203,95 +270,336 @@ class ZedDepthAssist(Node):
     def _stamp_sec(self, stamp):
         return float(stamp.sec + stamp.nanosec / 1e9)
 
-    def _nearest_component(self, depth_m, valid):
-        near_depth = self.contour_near_depth_m
-        if near_depth <= 0.0:
-            near_depth = self.min_depth_m + 0.35 * (self.max_depth_m - self.min_depth_m)
-        near_depth = min(near_depth, self.max_depth_m)
-        mask = (valid & (depth_m <= near_depth)).astype(np.uint8) * 255
-        if not np.any(mask):
-            return {}, {}
+    def _scaled_intrinsics(self, depth_shape):
+        if self.latest_intrinsics is None:
+            return None
+        if self.latest_intrinsics['fx'] <= 0.0 or self.latest_intrinsics['fy'] <= 0.0:
+            return None
+        height, width = depth_shape[:2]
+        info_width = max(self.latest_intrinsics['width'], 1)
+        info_height = max(self.latest_intrinsics['height'], 1)
+        sx = float(width) / float(info_width)
+        sy = float(height) / float(info_height)
+        return {
+            'fx': self.latest_intrinsics['fx'] * sx,
+            'fy': self.latest_intrinsics['fy'] * sy,
+            'cx': self.latest_intrinsics['cx'] * sx,
+            'cy': self.latest_intrinsics['cy'] * sy,
+            'width': width,
+            'height': height,
+            'frame_id': self.latest_intrinsics['frame_id'],
+        }
 
-        kernel = np.ones((5, 5), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    def _camera_frame_candidates(self, depth_msg):
         candidates = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area < self.contour_min_area_px:
-                continue
-            contour_mask = np.zeros(depth_m.shape, dtype=np.uint8)
-            cv2.drawContours(contour_mask, [contour], -1, 255, -1)
-            contour_valid = (contour_mask > 0) & valid
-            if not np.any(contour_valid):
-                continue
-            median_depth = float(np.median(depth_m[contour_valid]))
-            candidates.append((median_depth, -area, contour, area, contour_valid))
-        if not candidates:
-            return {}, {}
+        for frame in (
+            self.camera_optical_frame,
+            self.latest_intrinsics.get('frame_id') if self.latest_intrinsics else '',
+            depth_msg.header.frame_id,
+            *self.camera_frame_fallbacks,
+        ):
+            frame = str(frame).strip()
+            if frame and frame not in candidates:
+                candidates.append(frame)
+        return candidates
 
-        median_depth, _, contour, area, contour_valid = min(candidates, key=lambda item: item[:2])
-        moments = cv2.moments(contour)
-        if moments['m00'] > 1e-6:
-            cx = float(moments['m10'] / moments['m00'])
-            cy = float(moments['m01'] / moments['m00'])
+    def _tf_time(self, stamp):
+        if self.use_latest_tf or (stamp.sec == 0 and stamp.nanosec == 0):
+            return Time()
+        return Time.from_msg(stamp)
+
+    def _lookup_link_point(self, camera_frame, source_frame, stamp):
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                camera_frame,
+                source_frame,
+                self._tf_time(stamp),
+                timeout=self.tf_lookup_timeout,
+            )
+        except Exception:
+            return None
+        translation = transform.transform.translation
+        return np.array([translation.x, translation.y, translation.z], dtype=np.float32)
+
+    def _project_point(self, point, intrinsics):
+        if point is None or not np.all(np.isfinite(point)) or float(point[2]) <= 0.02:
+            return None
+        u = intrinsics['fx'] * float(point[0]) / float(point[2]) + intrinsics['cx']
+        v = intrinsics['fy'] * float(point[1]) / float(point[2]) + intrinsics['cy']
+        if not math.isfinite(u) or not math.isfinite(v):
+            return None
+        return (int(round(u)), int(round(v)))
+
+    def _point_in_image(self, pixel, shape):
+        if pixel is None:
+            return False
+        height, width = shape[:2]
+        return 0 <= pixel[0] < width and 0 <= pixel[1] < height
+
+    def _collect_arm_projection(self, camera_frame, depth_msg, intrinsics, depth_shape):
+        sides = {
+            'left': {
+                'label': 'L',
+                'hand_frame': self.left_hand_frame,
+                'links': self.left_arm_links,
+                'color': (70, 220, 120),
+            },
+            'right': {
+                'label': 'R',
+                'hand_frame': self.right_hand_frame,
+                'links': self.right_arm_links,
+                'color': (255, 110, 220),
+            },
+        }
+        projections = {}
+        for side, config in sides.items():
+            hand_point = self._lookup_link_point(
+                camera_frame, config['hand_frame'], depth_msg.header.stamp)
+            hand_pixel = self._project_point(hand_point, intrinsics)
+            link_draw = []
+            if hand_point is not None:
+                for frame in config['links']:
+                    point = self._lookup_link_point(camera_frame, frame, depth_msg.header.stamp)
+                    pixel = self._project_point(point, intrinsics)
+                    link_draw.append({
+                        'frame': frame,
+                        'point': point,
+                        'pixel': pixel,
+                        'visible': self._point_in_image(pixel, depth_shape),
+                    })
+            projections[side] = {
+                'label': config['label'],
+                'color': config['color'],
+                'hand_frame': config['hand_frame'],
+                'hand_point': hand_point,
+                'hand_pixel': hand_pixel,
+                'hand_visible': self._point_in_image(hand_pixel, depth_shape),
+                'links': link_draw,
+            }
+        return projections
+
+    def _draw_robot_mask(self, shape, projections):
+        mask = np.zeros(shape[:2], dtype=np.uint8)
+        for projection in projections.values():
+            visible_pixels = [
+                item['pixel'] for item in projection['links']
+                if item.get('visible')
+            ]
+            for pixel in visible_pixels:
+                cv2.circle(mask, pixel, self.robot_mask_radius_px, 255, -1)
+            for p0, p1 in zip(visible_pixels, visible_pixels[1:]):
+                cv2.line(mask, p0, p1, 255, self.robot_mask_radius_px * 2)
+            if projection.get('hand_visible'):
+                cv2.circle(mask, projection['hand_pixel'], self.robot_mask_radius_px + 4, 255, -1)
+        if self.robot_mask_dilate_px > 0 and np.any(mask):
+            ksize = self.robot_mask_dilate_px * 2 + 1
+            kernel = np.ones((ksize, ksize), np.uint8)
+            mask = cv2.dilate(mask, kernel, iterations=1)
+        return mask > 0
+
+    def _pixel_points_for_mask(self, depth_m, mask, intrinsics):
+        ys, xs = np.nonzero(mask)
+        if xs.size == 0:
+            return xs, ys, None
+        z = depth_m[ys, xs].astype(np.float32, copy=False)
+        x = (xs.astype(np.float32) - intrinsics['cx']) * z / intrinsics['fx']
+        y = (ys.astype(np.float32) - intrinsics['cy']) * z / intrinsics['fy']
+        points = np.column_stack((x, y, z))
+        return xs, ys, points
+
+    def _objects_near_hand(self, side_projection, depth_m, valid, robot_mask, intrinsics):
+        if not side_projection.get('hand_visible') or side_projection.get('hand_point') is None:
+            return [], None
+
+        height, width = depth_m.shape[:2]
+        hx, hy = side_projection['hand_pixel']
+        roi_mask = np.zeros(depth_m.shape, dtype=np.uint8)
+        cv2.circle(roi_mask, (hx, hy), self.hand_roi_radius_px, 255, -1)
+        candidate = (roi_mask > 0) & valid & (~robot_mask)
+        if not np.any(candidate):
+            return [], candidate
+
+        xs, ys, points = self._pixel_points_for_mask(depth_m, candidate, intrinsics)
+        if points is None:
+            return [], candidate
+
+        hand_point = side_projection['hand_point'].astype(np.float32, copy=False)
+        distances = np.linalg.norm(points - hand_point.reshape(1, 3), axis=1)
+        near_index = distances <= self.near_hand_radius_m
+        near_mask = np.zeros(depth_m.shape, dtype=np.uint8)
+        near_mask[ys[near_index], xs[near_index]] = 255
+        if not np.any(near_mask):
+            return [], near_mask > 0
+
+        kernel = np.ones((3, 3), np.uint8)
+        near_mask = cv2.morphologyEx(near_mask, cv2.MORPH_OPEN, kernel)
+        near_mask = cv2.morphologyEx(near_mask, cv2.MORPH_CLOSE, kernel)
+
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
+            near_mask, connectivity=8)
+        objects = []
+        for label_id in range(1, num_labels):
+            area = float(stats[label_id, cv2.CC_STAT_AREA])
+            if area < self.component_min_area_px:
+                continue
+            component_mask = labels == label_id
+            comp_xs, comp_ys, comp_points = self._pixel_points_for_mask(
+                depth_m, component_mask, intrinsics)
+            if comp_points is None:
+                continue
+            comp_distances = np.linalg.norm(comp_points - hand_point.reshape(1, 3), axis=1)
+            depth_median = float(np.median(comp_points[:, 2]))
+            point_median = np.median(comp_points, axis=0)
+            contours, _ = cv2.findContours(
+                component_mask.astype(np.uint8) * 255,
+                cv2.RETR_EXTERNAL,
+                cv2.CHAIN_APPROX_SIMPLE,
+            )
+            contour = max(contours, key=cv2.contourArea) if contours else None
+            cx = int(round(float(centroids[label_id][0])))
+            cy = int(round(float(centroids[label_id][1])))
+            depth_delta = depth_median - float(hand_point[2])
+            distance_3d = float(np.median(comp_distances))
+            objects.append({
+                'valid': True,
+                'cx_px': cx,
+                'cy_px': cy,
+                'area_px': int(area),
+                'depth_m': self._clean_float(depth_median),
+                'depth_delta_m': self._clean_float(depth_delta),
+                'distance_3d_m': self._clean_float(distance_3d),
+                'point_m': [self._clean_float(value) for value in point_median],
+                'contour': contour,
+            })
+
+        objects.sort(key=lambda item: (
+            float('inf') if item['distance_3d_m'] is None else item['distance_3d_m'],
+            abs(float('inf') if item['depth_delta_m'] is None else item['depth_delta_m']),
+        ))
+        return objects[:self.max_objects_per_hand], near_mask > 0
+
+    def _compare_hands(self, left_depth, right_depth):
+        if left_depth is None or right_depth is None:
+            return {
+                'farther': 'unknown',
+                'delta_m': None,
+            }
+        delta = float(right_depth) - float(left_depth)
+        if abs(delta) < 0.02:
+            farther = 'tie'
         else:
-            points = contour.reshape(-1, 2)
-            cx = float(np.mean(points[:, 0]))
-            cy = float(np.mean(points[:, 1]))
+            farther = 'right' if delta > 0.0 else 'left'
+        return {
+            'farther': farther,
+            'delta_m': self._clean_float(abs(delta)),
+            'signed_right_minus_left_m': self._clean_float(delta),
+        }
 
-        component = {
-            'valid': True,
-            'cx_px': int(round(cx)),
-            'cy_px': int(round(cy)),
-            'area_px': int(area),
-            'depth_m': self._clean_float(median_depth),
-            'threshold_m': self._clean_float(near_depth),
+    def _arm_relative_metrics(self, depth_m, depth_msg):
+        intrinsics = self._scaled_intrinsics(depth_m.shape)
+        if intrinsics is None:
+            return {
+                'stamp_sec': self._clean_float(self._stamp_sec(depth_msg.header.stamp), 6),
+                'status': 'waiting_camera_info',
+            }, {
+                'status_text': 'WAITING CAMERA_INFO',
+                'projections': {},
+                'robot_mask': np.zeros(depth_m.shape, dtype=bool),
+            }
+
+        camera_candidates = self._camera_frame_candidates(depth_msg)
+        last_error = ''
+        for camera_frame in camera_candidates:
+            projections = self._collect_arm_projection(
+                camera_frame, depth_msg, intrinsics, depth_m.shape)
+            left_ok = projections['left']['hand_point'] is not None
+            right_ok = projections['right']['hand_point'] is not None
+            if left_ok or right_ok:
+                break
+            last_error = f'no TF from {camera_frame} to hand frames'
+        else:
+            return {
+                'stamp_sec': self._clean_float(self._stamp_sec(depth_msg.header.stamp), 6),
+                'status': 'waiting_tf',
+                'camera_frame_candidates': camera_candidates,
+                'message': last_error or 'no camera frame candidates',
+            }, {
+                'status_text': 'WAITING TF',
+                'projections': {},
+                'robot_mask': np.zeros(depth_m.shape, dtype=bool),
+            }
+
+        robot_mask = self._draw_robot_mask(depth_m.shape, projections)
+        valid = self._valid_mask(depth_m)
+        hands = {}
+        draw_objects = {}
+        for side, projection in projections.items():
+            objects, object_mask = self._objects_near_hand(
+                projection, depth_m, valid, robot_mask, intrinsics)
+            nearest = objects[0] if objects else None
+            hand_point = projection.get('hand_point')
+            hand_depth = None
+            hand_valid = False
+            if hand_point is not None and math.isfinite(float(hand_point[2])) and float(hand_point[2]) > 0.02:
+                hand_depth = self._clean_float(float(hand_point[2]))
+                hand_valid = True
+            hands[side] = {
+                'valid': hand_valid,
+                'frame': projection.get('hand_frame'),
+                'pixel': self._pixel_dict(projection.get('hand_pixel')),
+                'visible': bool(projection.get('hand_visible', False)),
+                'hand_depth_m': hand_depth,
+                'hand_point_m': [self._clean_float(value) for value in hand_point] if hand_point is not None else None,
+                'nearest_object': self._object_public(nearest),
+                'objects': [self._object_public(obj) for obj in objects],
+            }
+            draw_objects[side] = {
+                'mask': object_mask,
+                'objects': objects,
+            }
+
+        compare = self._compare_hands(
+            hands['left']['hand_depth_m'],
+            hands['right']['hand_depth_m'],
+        )
+        metrics = {
+            'stamp_sec': self._clean_float(self._stamp_sec(depth_msg.header.stamp), 6),
+            'status': 'ok',
+            'camera_frame': camera_frame,
+            'camera_info_frame': intrinsics.get('frame_id'),
+            'hands': hands,
+            'gripper_depth_compare': compare,
         }
         draw = {
-            'contour': contour,
-            'center': (int(round(cx)), int(round(cy))),
-            'valid_mask': contour_valid,
-        }
-        return component, draw
-
-    def _depth_metrics(self, depth_m, stamp):
-        height, width = depth_m.shape[:2]
-        valid = self._valid_mask(depth_m)
-        center_m = self._median_depth_at(depth_m, width // 2, height // 2, self.center_roi_px)
-        left_proxy_m = self._median_depth_at(
-            depth_m, int(width * 0.33), int(height * 0.78), self.center_roi_px)
-        right_proxy_m = self._median_depth_at(
-            depth_m, int(width * 0.67), int(height * 0.78), self.center_roi_px)
-        nearest, draw = self._nearest_component(depth_m, valid)
-        if nearest.get('valid'):
-            nearest['offset_x_px'] = int(nearest['cx_px'] - width // 2)
-            nearest['offset_y_px'] = int(nearest['cy_px'] - height // 2)
-
-        proxy_values = [
-            value for value in (left_proxy_m, right_proxy_m)
-            if math.isfinite(value)
-        ]
-        proxy_m = min(proxy_values) if proxy_values else float('nan')
-        relative_m = None
-        if nearest.get('valid') and math.isfinite(proxy_m):
-            relative_m = self._clean_float(float(nearest['depth_m']) - proxy_m)
-
-        metrics = {
-            'stamp_sec': self._clean_float(self._stamp_sec(stamp), 6),
-            'center_m': self._clean_float(center_m),
-            'nearest_valid': bool(nearest.get('valid', False)),
-            'nearest_depth_m': nearest.get('depth_m') if nearest.get('valid') else None,
-            'nearest_cx_px': nearest.get('cx_px'),
-            'nearest_cy_px': nearest.get('cy_px'),
-            'nearest_area_px': nearest.get('area_px'),
-            'offset_x_px': nearest.get('offset_x_px'),
-            'offset_y_px': nearest.get('offset_y_px'),
-            'left_gripper_proxy_m': self._clean_float(left_proxy_m),
-            'right_gripper_proxy_m': self._clean_float(right_proxy_m),
-            'nearest_minus_gripper_proxy_m': relative_m,
+            'status_text': '',
+            'camera_frame': camera_frame,
+            'projections': projections,
+            'robot_mask': robot_mask,
+            'objects': draw_objects,
         }
         return metrics, draw
+
+    def _pixel_dict(self, pixel):
+        if pixel is None:
+            return None
+        return {
+            'x': int(pixel[0]),
+            'y': int(pixel[1]),
+        }
+
+    def _object_public(self, obj):
+        if not obj:
+            return None
+        return {
+            'valid': bool(obj.get('valid', False)),
+            'cx_px': obj.get('cx_px'),
+            'cy_px': obj.get('cy_px'),
+            'area_px': obj.get('area_px'),
+            'depth_m': obj.get('depth_m'),
+            'depth_delta_m': obj.get('depth_delta_m'),
+            'distance_3d_m': obj.get('distance_3d_m'),
+            'point_m': obj.get('point_m'),
+        }
 
     def _get_base_image(self, depth_shape, now):
         if self.latest_base_image is None or self.latest_base_image_time is None:
@@ -311,65 +619,96 @@ class ZedDepthAssist(Node):
             return '--'
         return f'{float(value):.2f}'
 
-    def _make_assist_image(self, depth_m, metrics, draw, base_image):
+    def _format_delta(self, value):
+        if value is None:
+            return '--'
+        return f'{float(value):+.2f}'
+
+    def _compare_text(self, compare):
+        farther = compare.get('farther')
+        delta = compare.get('delta_m')
+        if farther == 'left':
+            return f'LEFT FARTHER +{self._format_depth(delta)}m'
+        if farther == 'right':
+            return f'RIGHT FARTHER +{self._format_depth(delta)}m'
+        if farther == 'tie':
+            return 'HANDS SAME DEPTH'
+        return 'HAND DEPTH --'
+
+    def _make_assist_image(self, metrics, draw, base_image):
         image = np.ascontiguousarray(base_image.copy())
         height, width = image.shape[:2]
-        center = (width // 2, height // 2)
-        roi_half = self.center_roi_px // 2
+        cv2.rectangle(image, (0, 0), (width - 1, 86), (16, 18, 20), -1)
 
-        center_box = (
-            max(center[0] - roi_half, 0),
-            max(center[1] - roi_half, 0),
-            min(center[0] + roi_half, width - 1),
-            min(center[1] + roi_half, height - 1),
-        )
-        cv2.rectangle(
-            image,
-            (center_box[0], center_box[1]),
-            (center_box[2], center_box[3]),
-            (255, 255, 255),
-            1,
-        )
-        cv2.drawMarker(image, center, (255, 255, 255), cv2.MARKER_CROSS, 18, 1)
+        status = metrics.get('status')
+        if status != 'ok':
+            status_text = draw.get('status_text') or str(status).upper()
+            cv2.rectangle(image, (0, 0), (width - 1, 86), (0, 0, 255), 2)
+            self._put_text(image, f'ZED ARM DEPTH: {status_text}', (8, 32), 0.72)
+            message = str(metrics.get('message') or '')
+            if message:
+                self._put_text(image, message[:70], (8, 63), 0.48)
+            return image
 
-        contour = draw.get('contour')
-        nearest_center = draw.get('center')
-        if contour is not None:
-            cv2.drawContours(image, [contour], -1, (0, 255, 255), 2, cv2.LINE_AA)
-        if nearest_center is not None:
-            cv2.circle(image, nearest_center, 6, (0, 255, 255), -1, cv2.LINE_AA)
-            cv2.line(image, center, nearest_center, (0, 255, 255), 1, cv2.LINE_AA)
+        projections = draw.get('projections') or {}
+        for side in ('left', 'right'):
+            projection = projections.get(side)
+            if not projection:
+                continue
+            color = projection['color']
+            visible = [
+                item['pixel'] for item in projection.get('links', [])
+                if item.get('visible')
+            ]
+            for p0, p1 in zip(visible, visible[1:]):
+                cv2.line(image, p0, p1, color, 4, cv2.LINE_AA)
+            for point in visible:
+                cv2.circle(image, point, 5, color, -1, cv2.LINE_AA)
+            if projection.get('hand_visible'):
+                hand_pixel = projection['hand_pixel']
+                cv2.circle(image, hand_pixel, self.hand_roi_radius_px, color, 1, cv2.LINE_AA)
+                cv2.circle(image, hand_pixel, 9, color, -1, cv2.LINE_AA)
+                cv2.circle(image, hand_pixel, 13, (255, 255, 255), 1, cv2.LINE_AA)
 
-        proxy_y = int(height * 0.78)
-        proxy_points = [
-            ('L', int(width * 0.33), proxy_y, metrics.get('left_gripper_proxy_m')),
-            ('R', int(width * 0.67), proxy_y, metrics.get('right_gripper_proxy_m')),
-        ]
-        for label, x, y, depth in proxy_points:
-            cv2.rectangle(
-                image,
-                (max(x - roi_half, 0), max(y - roi_half, 0)),
-                (min(x + roi_half, width - 1), min(y + roi_half, height - 1)),
-                (255, 0, 255),
-                1,
-            )
-            self._put_text(image, f'{label} {self._format_depth(depth)}m', (x - roi_half, y - roi_half - 6), 0.42)
+        object_draw = draw.get('objects') or {}
+        for side, data in object_draw.items():
+            color = (0, 255, 255) if side == 'left' else (0, 180, 255)
+            for index, obj in enumerate(data.get('objects') or []):
+                contour = obj.get('contour')
+                if contour is not None:
+                    thickness = 3 if index == 0 else 1
+                    cv2.drawContours(image, [contour], -1, color, thickness, cv2.LINE_AA)
+                center = (obj.get('cx_px'), obj.get('cy_px'))
+                if center[0] is not None and center[1] is not None:
+                    cv2.circle(image, center, 5, color, -1, cv2.LINE_AA)
+                    label = 'L' if side == 'left' else 'R'
+                    self._put_text(
+                        image,
+                        f'{label} {self._format_delta(obj.get("depth_delta_m"))}m',
+                        (center[0] + 8, max(center[1] - 8, 98)),
+                        0.46,
+                    )
 
-        cv2.rectangle(image, (0, 0), (width - 1, 66), (16, 18, 20), -1)
-        cv2.rectangle(image, (0, 0), (width - 1, 66), (0, 255, 255), 1)
+        hands = metrics.get('hands') or {}
+        left = hands.get('left') or {}
+        right = hands.get('right') or {}
+        compare_text = self._compare_text(metrics.get('gripper_depth_compare') or {})
         self._put_text(
             image,
-            f'ZED CENTER {self._format_depth(metrics.get("center_m"))}m '
-            f'NEAR {self._format_depth(metrics.get("nearest_depth_m"))}m',
-            (8, 25),
-            0.56,
+            f'L HAND {self._format_depth(left.get("hand_depth_m"))}m  '
+            f'R HAND {self._format_depth(right.get("hand_depth_m"))}m  {compare_text}',
+            (8, 30),
+            0.58,
         )
-        rel = metrics.get('nearest_minus_gripper_proxy_m')
-        rel_text = '--' if rel is None else f'{float(rel):+.2f}m'
+        left_obj = left.get('nearest_object') or {}
+        right_obj = right.get('nearest_object') or {}
         self._put_text(
             image,
-            f'OBJECT-GRIPPER {rel_text}  SPARSE DEPTH CUE',
-            (8, 52),
+            f'L OBJ-HAND {self._format_delta(left_obj.get("depth_delta_m"))}m '
+            f'3D {self._format_depth(left_obj.get("distance_3d_m"))}m   '
+            f'R OBJ-HAND {self._format_delta(right_obj.get("depth_delta_m"))}m '
+            f'3D {self._format_depth(right_obj.get("distance_3d_m"))}m',
+            (8, 61),
             0.50,
         )
         return image
@@ -389,7 +728,7 @@ class ZedDepthAssist(Node):
         ok, encoded = cv2.imencode(
             '.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality])
         if not ok:
-            self._warn_throttled('failed to JPEG-encode ZED depth assist')
+            self._warn_throttled('failed to JPEG-encode ZED arm-relative depth assist')
             return
         msg = CompressedImage()
         msg.header = header

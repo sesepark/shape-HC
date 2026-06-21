@@ -17,6 +17,7 @@
   <depend>nav_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>tf2_ros</depend>
   <depend>python3-tk</depend>
   <exec_depend>ffw_bringup</exec_depend>
   <exec_depend>launch</exec_depend>
