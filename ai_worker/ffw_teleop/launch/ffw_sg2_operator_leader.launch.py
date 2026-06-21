@@ -11,6 +11,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -20,6 +21,10 @@ def generate_launch_description():
     leader_right_port = LaunchConfiguration('leader_right_port')
     start_rviz = LaunchConfiguration('start_rviz')
     start_leader = LaunchConfiguration('start_leader')
+    start_mission_control = LaunchConfiguration('start_mission_control')
+    start_operator_layout = LaunchConfiguration('start_operator_layout')
+    mission_profiles_config = LaunchConfiguration('mission_profiles_config')
+    operator_screen_layout_config = LaunchConfiguration('operator_screen_layout_config')
 
     leader = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -46,6 +51,31 @@ def generate_launch_description():
         condition=IfCondition(start_rviz),
     )
 
+    mission_control = Node(
+        package='ffw_teleop',
+        executable='mission_mode_manager',
+        name='mission_mode_manager',
+        output='screen',
+        parameters=[{
+            'profiles_config': mission_profiles_config,
+        }],
+        condition=IfCondition(start_mission_control),
+    )
+
+    operator_layout = Node(
+        package='ffw_teleop',
+        executable='operator_layout_manager',
+        name='operator_layout_manager',
+        output='screen',
+        parameters=[{
+            'layout_config': operator_screen_layout_config,
+            'initial_delay_s': 3.0,
+            'retry_count': 24,
+            'retry_interval_s': 0.5,
+        }],
+        condition=IfCondition(start_operator_layout),
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'leader_controller_config',
@@ -54,6 +84,24 @@ def generate_launch_description():
         DeclareLaunchArgument('leader_right_port', default_value='/dev/right_leader'),
         DeclareLaunchArgument('start_leader', default_value='true'),
         DeclareLaunchArgument('start_rviz', default_value='true'),
+        DeclareLaunchArgument('start_mission_control', default_value='true'),
+        DeclareLaunchArgument('start_operator_layout', default_value='true'),
+        DeclareLaunchArgument(
+            'mission_profiles_config',
+            default_value=PathJoinSubstitution([
+                FindPackageShare('ffw_teleop'),
+                'config',
+                'mission_profiles.yaml',
+            ])),
+        DeclareLaunchArgument(
+            'operator_screen_layout_config',
+            default_value=PathJoinSubstitution([
+                FindPackageShare('ffw_teleop'),
+                'config',
+                'operator_screen_layout.yaml',
+            ])),
         leader,
         operator,
+        mission_control,
+        operator_layout,
     ])

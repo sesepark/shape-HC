@@ -121,6 +121,8 @@ RUN apt-get update && apt-get install -y \
     vim \
     nano \
     python3-pip \
+    python3-yaml \
+    wmctrl \
     && rm -rf /var/lib/apt/lists/*
 
 ENV COLCON_WS=/root/ros2_ws

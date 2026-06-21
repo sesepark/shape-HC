@@ -1,0 +1,43 @@
+windows:
+  - name: rviz
+    enabled: true
+    title_patterns:
+      - "teleop_operator_rviz"
+      - "RViz"
+      - "RViz2"
+    x: 60
+    y: 40
+    width: 1440
+    height: 900
+  - name: mission_control
+    enabled: true
+    title_patterns:
+      - "Mission Control"
+    x: 1520
+    y: 40
+    width: 380
+    height: 360
+  - name: zed_viewer
+    enabled: false
+    title_patterns:
+      - "Head ZED Depth Assist"
+    x: 1520
+    y: 420
+    width: 640
+    height: 360
+  - name: left_wrist_viewer
+    enabled: false
+    title_patterns:
+      - "Left Wrist Depth Assist"
+    x: 60
+    y: 980
+    width: 520
+    height: 300
+  - name: right_wrist_viewer
+    enabled: false
+    title_patterns:
+      - "Right Wrist Depth Assist"
+    x: 600
+    y: 980
+    width: 520
+    height: 300
