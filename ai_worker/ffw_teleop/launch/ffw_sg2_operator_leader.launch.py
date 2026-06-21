@@ -23,8 +23,11 @@ def generate_launch_description():
     start_leader = LaunchConfiguration('start_leader')
     start_mission_control = LaunchConfiguration('start_mission_control')
     start_operator_layout = LaunchConfiguration('start_operator_layout')
+    rviz_config = LaunchConfiguration('rviz_config')
     mission_profiles_config = LaunchConfiguration('mission_profiles_config')
     operator_screen_layout_config = LaunchConfiguration('operator_screen_layout_config')
+    operator_layout_action = LaunchConfiguration('operator_layout_action')
+    operator_layout_store_path = LaunchConfiguration('operator_layout_store_path')
 
     leader = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -41,13 +44,12 @@ def generate_launch_description():
         condition=IfCondition(start_leader),
     )
 
-    operator = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([
-                FindPackageShare('ffw_teleop'),
-                'launch',
-                'teleop_operator.launch.py',
-            ])),
+    rviz = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='teleop_operator_rviz',
+        arguments=['-d', rviz_config],
+        output='screen',
         condition=IfCondition(start_rviz),
     )
 
@@ -69,6 +71,8 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'layout_config': operator_screen_layout_config,
+            'action': operator_layout_action,
+            'layout_store_path': operator_layout_store_path,
             'initial_delay_s': 3.0,
             'retry_count': 24,
             'retry_interval_s': 0.5,
@@ -87,6 +91,13 @@ def generate_launch_description():
         DeclareLaunchArgument('start_mission_control', default_value='true'),
         DeclareLaunchArgument('start_operator_layout', default_value='true'),
         DeclareLaunchArgument(
+            'rviz_config',
+            default_value=PathJoinSubstitution([
+                FindPackageShare('ffw_teleop'),
+                'rviz',
+                'teleop_operator.rviz',
+            ])),
+        DeclareLaunchArgument(
             'mission_profiles_config',
             default_value=PathJoinSubstitution([
                 FindPackageShare('ffw_teleop'),
@@ -100,8 +111,12 @@ def generate_launch_description():
                 'config',
                 'operator_screen_layout.yaml',
             ])),
+        DeclareLaunchArgument('operator_layout_action', default_value='restore'),
+        DeclareLaunchArgument(
+            'operator_layout_store_path',
+            default_value='~/.config/ffw_teleop/operator_screen_layout.json'),
         leader,
-        operator,
+        rviz,
         mission_control,
         operator_layout,
     ])

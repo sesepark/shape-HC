@@ -349,7 +349,7 @@ class MissionModeManager(Node):
         self.tk = tk
         self.root = root
         root.title('Mission Control')
-        root.geometry('380x360+1520+40')
+        root.geometry('380x360+80+80')
         root.configure(bg='#202226')
         root.protocol('WM_DELETE_WINDOW', root.iconify)
         root.bind('<Key>', self._on_key_press)
