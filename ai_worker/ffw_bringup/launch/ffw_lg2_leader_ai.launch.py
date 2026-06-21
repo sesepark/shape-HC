@@ -17,9 +17,10 @@
 # Authors: Sungho Woo, Woojin Wie, Wonho Yun
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction
+from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node, PushRosNamespace
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -30,9 +31,17 @@ def generate_launch_description():
             default_value='ffw_lg2_leader.urdf.xacro',
             description='URDF/XACRO file for the robot model.',
         ),
+        DeclareLaunchArgument(
+            'leader_controller_config',
+            default_value='ffw_lg2_leader_ai_hardware_controller.yaml',
+            description='Controller YAML file for the LG2 Leader.',
+        ),
     ]
 
     description_file = LaunchConfiguration('description_file')
+    leader_controller_config = LaunchConfiguration('leader_controller_config')
+    leader_namespace = 'leader'
+    leader_robot_description_topic = '/leader/robot_description'
 
     # Robot controllers config file path
     robot_controllers = PathJoinSubstitution(
@@ -40,29 +49,44 @@ def generate_launch_description():
             FindPackageShare('ffw_bringup'),
             'config',
             'ffw_lg2_leader',
-            'ffw_lg2_leader_ai_hardware_controller.yaml',
+            leader_controller_config,
         ]
     )
 
-    robot_description_content = Command(
-        [
-            PathJoinSubstitution([FindExecutable(name='xacro')]),
-            ' ',
-            PathJoinSubstitution(
-                [FindPackageShare('ffw_description'), 'urdf', 'ffw_lg2_leader', description_file]
-            ),
-        ]
+    robot_description_content = ParameterValue(
+        Command(
+            [
+                PathJoinSubstitution([FindExecutable(name='xacro')]),
+                ' ',
+                PathJoinSubstitution(
+                    [FindPackageShare('ffw_description'), 'urdf', 'ffw_lg2_leader', description_file]
+                ),
+            ]
+        ),
+        value_type=str,
     )
     robot_description = {'robot_description': robot_description_content}
+
+    robot_description_topic_publisher_node = Node(
+        package='ffw_bringup',
+        executable='robot_description_topic_publisher',
+        namespace=leader_namespace,
+        output='both',
+        parameters=[robot_description, {'publish_period_sec': 1.0}],
+        remappings=[
+            ('robot_description', leader_robot_description_topic),
+        ],
+    )
 
     # ros2_control Node
     control_node = Node(
         package='controller_manager',
         executable='ros2_control_node',
+        namespace=leader_namespace,
         parameters=[robot_description, robot_controllers],
         remappings=[
-            ('~/robot_description', '/leader/robot_description'),
-            ('robot_description', '/leader/robot_description'),
+            ('~/robot_description', leader_robot_description_topic),
+            ('robot_description', leader_robot_description_topic),
         ],
         output='both',
     )
@@ -70,12 +94,15 @@ def generate_launch_description():
     robot_controller_spawner = Node(
         package='controller_manager',
         executable='spawner',
+        namespace=leader_namespace,
         arguments=[
             'joint_trajectory_command_broadcaster',
             'spring_actuator_controller_left',
             'spring_actuator_controller_right',
             'joystick_controller',
             'joint_state_broadcaster',
+            '--controller-manager',
+            '/leader/controller_manager',
         ],
         parameters=[robot_description],
     )
@@ -83,19 +110,28 @@ def generate_launch_description():
     robot_state_publisher_node = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
+        namespace=leader_namespace,
         output='both',
-        parameters=[robot_description, {'frame_prefix': 'leader_'}],
-    )
-
-    # Wrap everything in a namespace 'leader'
-    leader_with_namespace = GroupAction(
-        actions=[
-            PushRosNamespace('leader'),
-            control_node,
-            robot_controller_spawner,
-            robot_state_publisher_node,
-        ]
+        parameters=[
+            robot_description,
+            {
+                'frame_prefix': 'leader_',
+                'use_robot_description_topic': False,
+            },
+        ],
+        remappings=[
+            ('robot_description', leader_robot_description_topic),
+        ],
     )
 
     # Return combined LaunchDescription
-    return LaunchDescription(declared_arguments + [leader_with_namespace])
+    return LaunchDescription(
+        declared_arguments + [
+            LogInfo(msg=['LG2 Leader controller config: ', leader_controller_config]),
+            LogInfo(msg=['LG2 Leader robot_description topic: ', leader_robot_description_topic]),
+            robot_description_topic_publisher_node,
+            robot_state_publisher_node,
+            control_node,
+            robot_controller_spawner,
+        ]
+    )

@@ -38,12 +38,28 @@ ensure_source_tree() {
     fi
 }
 
+normalize_mount_path() {
+    local path="$1"
+    case "${path}" in
+        /host_mnt/*)
+            printf '/%s\n' "${path#/host_mnt/}"
+            ;;
+        *)
+            printf '%s\n' "${path}"
+            ;;
+    esac
+}
+
 ensure_container_mount() {
     local current_source
     current_source=$(docker inspect "$CONTAINER_NAME" \
         --format '{{range .Mounts}}{{if eq .Destination "/root/ros2_ws/src/ai_worker"}}{{.Source}}{{end}}{{end}}' \
         2>/dev/null || true)
-    if [ -n "${current_source}" ] && [ "${current_source}" != "${AI_WORKER_SOURCE_DIR}" ]; then
+    local current_source_normalized
+    local expected_source_normalized
+    current_source_normalized=$(normalize_mount_path "${current_source}")
+    expected_source_normalized=$(normalize_mount_path "${AI_WORKER_SOURCE_DIR}")
+    if [ -n "${current_source}" ] && [ "${current_source_normalized}" != "${expected_source_normalized}" ]; then
         echo "Error: running container mounts a different ai_worker source tree."
         echo "  current:  ${current_source}"
         echo "  expected: ${AI_WORKER_SOURCE_DIR}"
