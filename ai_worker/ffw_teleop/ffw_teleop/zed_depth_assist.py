@@ -703,15 +703,85 @@ class ZedDepthAssist(Node):
             return 'HANDS SAME DEPTH'
         return 'HAND DEPTH --'
 
+    def _is_valid_depth(self, value):
+        if value is None:
+            return False
+        return math.isfinite(float(value))
+
+    def _hand_depth_header_state(self, left_depth, right_depth, compare):
+        neutral = (32, 34, 36)
+        same_green = (0, 150, 70)
+        far_orange = (70, 175, 255)
+        close_orange = (0, 105, 230)
+        colors = {
+            'left': neutral,
+            'right': neutral,
+        }
+        labels = {
+            'left': '--',
+            'right': '--',
+        }
+
+        left_valid = self._is_valid_depth(left_depth)
+        right_valid = self._is_valid_depth(right_depth)
+        if left_valid:
+            labels['left'] = 'DEPTH'
+        if right_valid:
+            labels['right'] = 'DEPTH'
+        if not (left_valid and right_valid):
+            return colors, labels
+
+        farther = compare.get('farther')
+        if farther == 'tie':
+            colors['left'] = same_green
+            colors['right'] = same_green
+            labels['left'] = 'SAME DEPTH'
+            labels['right'] = 'SAME DEPTH'
+            return colors, labels
+        if farther == 'left':
+            colors['left'] = far_orange
+            colors['right'] = close_orange
+            labels['left'] = 'FARTHER'
+            labels['right'] = 'CLOSER'
+            return colors, labels
+        if farther == 'right':
+            colors['left'] = close_orange
+            colors['right'] = far_orange
+            labels['left'] = 'CLOSER'
+            labels['right'] = 'FARTHER'
+            return colors, labels
+        return colors, labels
+
+    def _draw_hand_depth_header(self, image, left, right, compare):
+        height, width = image.shape[:2]
+        header_height = min(86, height)
+        mid_x = width // 2
+        left_depth = left.get('hand_depth_m')
+        right_depth = right.get('hand_depth_m')
+        colors, labels = self._hand_depth_header_state(left_depth, right_depth, compare)
+        panels = [
+            ('left', 'LEFT', left_depth, (0, 0), (max(mid_x - 1, 0), header_height - 1)),
+            ('right', 'RIGHT', right_depth, (mid_x, 0), (width - 1, header_height - 1)),
+        ]
+        for side, title, depth, top_left, bottom_right in panels:
+            cv2.rectangle(image, top_left, bottom_right, colors[side], -1)
+            depth_text = f'{self._format_depth(depth)}m' if self._is_valid_depth(depth) else '--'
+            text_x = top_left[0] + 8
+            self._put_text(image, f'{title} {depth_text}', (text_x, 31), 0.58)
+            self._put_text(image, labels[side], (text_x, 64), 0.52)
+        cv2.line(image, (mid_x, 0), (mid_x, header_height - 1), (235, 235, 235), 1)
+        cv2.rectangle(image, (0, 0), (width - 1, header_height - 1), (235, 235, 235), 1)
+
     def _make_assist_image(self, metrics, draw, base_image):
         image = np.ascontiguousarray(base_image.copy())
         height, width = image.shape[:2]
-        cv2.rectangle(image, (0, 0), (width - 1, 86), (16, 18, 20), -1)
 
         status = metrics.get('status')
         if status != 'ok':
             status_text = draw.get('status_text') or str(status).upper()
-            cv2.rectangle(image, (0, 0), (width - 1, 86), (0, 0, 255), 2)
+            header_height = min(86, height)
+            cv2.rectangle(image, (0, 0), (width - 1, header_height - 1), (16, 18, 20), -1)
+            cv2.rectangle(image, (0, 0), (width - 1, header_height - 1), (0, 0, 255), 2)
             self._put_text(image, f'ZED ARM DEPTH: {status_text}', (8, 32), 0.72)
             message = str(metrics.get('message') or '')
             if message:
@@ -760,14 +830,8 @@ class ZedDepthAssist(Node):
         hands = metrics.get('hands') or {}
         left = hands.get('left') or {}
         right = hands.get('right') or {}
-        compare_text = self._compare_text(metrics.get('gripper_depth_compare') or {})
-        self._put_text(
-            image,
-            f'L HAND {self._format_depth(left.get("hand_depth_m"))}m  '
-            f'R HAND {self._format_depth(right.get("hand_depth_m"))}m  {compare_text}',
-            (8, 30),
-            0.58,
-        )
+        compare = metrics.get('gripper_depth_compare') or {}
+        self._draw_hand_depth_header(image, left, right, compare)
         left_obj = left.get('nearest_object') or {}
         right_obj = right.get('nearest_object') or {}
         self._put_text(
