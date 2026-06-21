@@ -44,14 +44,6 @@ def generate_launch_description():
         ]
     )
 
-    # ros2_control Node
-    control_node = Node(
-        package='controller_manager',
-        executable='ros2_control_node',
-        parameters=[robot_controllers],
-        output='both',
-    )
-
     robot_description_content = Command(
         [
             PathJoinSubstitution([FindExecutable(name='xacro')]),
@@ -62,6 +54,14 @@ def generate_launch_description():
         ]
     )
     robot_description = {'robot_description': robot_description_content}
+
+    # ros2_control Node
+    control_node = Node(
+        package='controller_manager',
+        executable='ros2_control_node',
+        parameters=[robot_description, robot_controllers],
+        output='both',
+    )
 
     robot_controller_spawner = Node(
         package='controller_manager',
