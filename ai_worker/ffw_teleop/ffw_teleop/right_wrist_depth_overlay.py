@@ -11,8 +11,6 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Float32
 from std_msgs.msg import String
 
-from ffw_teleop.text_render import draw_text_bgr
-
 
 class WristDepthOverlay(Node):
 
@@ -744,31 +742,25 @@ class WristDepthOverlay(Node):
 
         target_text = self._format_depth(metrics.get('target_m'))
         nearest_text = self._format_depth(metrics.get('nearest_depth_m'))
-        side_label = '왼손목' if self.side == 'left' else '오른손목'
-        view_text_ko = (
-            f'{side_label} {self.view_preset} 회전 {self.view_rotate_deg:.0f}도 '
-            f'기준 {self.gripper_target_offset_x_px:+d},{self.gripper_target_offset_y_px:+d}px'
-        )
-        view_text_en = (
+        view_text = (
             f'{self.side.upper()} {self.view_preset} ROT {self.view_rotate_deg:.0f}deg '
             f'TARGET {self.gripper_target_offset_x_px:+d},{self.gripper_target_offset_y_px:+d}px'
         )
-        self._put_user_text(image, view_text_ko, view_text_en, (8, 24), 0.50)
-        self._put_user_text(
+        self._put_text(image, view_text, (8, 24), 0.50)
+        self._put_text(
             image,
-            f'집개 기준 {target_text}m  가까운 물체 {nearest_text}m  {self._target_band_label(metrics.get("target_band"))}',
             f'TARGET {target_text}m  NEAR {nearest_text}m',
             (8, 48),
             0.46,
         )
 
         legend_y = height - 12
-        self._put_user_text(image, '잡기 거리', '10-15cm', (8, legend_y), 0.42)
+        self._put_text(image, 'GRASP 10-15cm', (8, legend_y), 0.42)
         cv2.rectangle(image, (86, max(legend_y - 12, 0)), (108, legend_y - 2), (0, 140, 255), -1)
-        self._put_user_text(image, '가까움', '6-10cm', (120, legend_y), 0.42)
-        cv2.rectangle(image, (176, max(legend_y - 12, 0)), (198, legend_y - 2), (0, 220, 0), -1)
-        self._put_user_text(image, '너무 가까움', '<6cm', (210, legend_y), 0.42)
-        cv2.rectangle(image, (314, max(legend_y - 12, 0)), (336, legend_y - 2), (0, 0, 255), -1)
+        self._put_text(image, 'CLOSE 6-10cm', (120, legend_y), 0.42)
+        cv2.rectangle(image, (228, max(legend_y - 12, 0)), (250, legend_y - 2), (0, 220, 0), -1)
+        self._put_text(image, 'TOO CLOSE <6cm', (262, legend_y), 0.42)
+        cv2.rectangle(image, (396, max(legend_y - 12, 0)), (418, legend_y - 2), (0, 0, 255), -1)
         return np.ascontiguousarray(image)
 
     def _make_overlay(self, depth_m, center_distance, base_image):
@@ -834,22 +826,6 @@ class WristDepthOverlay(Node):
         ]
         if contours:
             cv2.drawContours(overlay, contours, -1, (255, 255, 255), 1, cv2.LINE_AA)
-
-    def _target_band_label(self, band):
-        return {
-            'grasp_range': '잡기 거리',
-            'close': '가까움',
-            'too_close': '너무 가까움',
-            'outside': '거리 확인',
-            'unknown': '거리 --',
-        }.get(str(band), '거리 --')
-
-    def _put_user_text(self, image, korean_text, fallback_text, origin, scale):
-        font_size = max(int(scale * 34), 12)
-        pil_origin = (origin[0], max(int(origin[1] - font_size), 0))
-        if draw_text_bgr(image, korean_text, pil_origin, font_size=font_size):
-            return
-        self._put_text(image, fallback_text, origin, scale)
 
     def _put_text(self, image, text, origin, scale):
         cv2.putText(image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,

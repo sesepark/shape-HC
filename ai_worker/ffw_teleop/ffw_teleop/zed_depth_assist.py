@@ -14,8 +14,6 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import String
 import tf2_ros
 
-from ffw_teleop.text_render import draw_text_bgr
-
 
 class ZedDepthAssist(Node):
 
@@ -705,24 +703,6 @@ class ZedDepthAssist(Node):
             return 'HANDS SAME DEPTH'
         return 'HAND DEPTH --'
 
-    def _compare_user_text(self, compare):
-        farther = compare.get('farther')
-        delta = compare.get('delta_m')
-        if farther == 'left':
-            return f'왼쪽이 더 멂 +{self._format_depth(delta)}m'
-        if farther == 'right':
-            return f'오른쪽이 더 멂 +{self._format_depth(delta)}m'
-        if farther == 'tie':
-            return '양손 깊이 비슷함'
-        return '손 깊이 --'
-
-    def _status_user_text(self, status_text):
-        normalized = str(status_text or '').strip().upper().replace(' ', '_')
-        return {
-            'WAITING_CAMERA_INFO': '카메라 정보 대기 중',
-            'WAITING_TF': 'TF 대기 중',
-        }.get(normalized, str(status_text or '대기 중'))
-
     def _make_assist_image(self, metrics, draw, base_image):
         image = np.ascontiguousarray(base_image.copy())
         height, width = image.shape[:2]
@@ -732,13 +712,7 @@ class ZedDepthAssist(Node):
         if status != 'ok':
             status_text = draw.get('status_text') or str(status).upper()
             cv2.rectangle(image, (0, 0), (width - 1, 86), (0, 0, 255), 2)
-            self._put_user_text(
-                image,
-                f'머리 ZED 깊이: {self._status_user_text(status_text)}',
-                f'ZED ARM DEPTH: {status_text}',
-                (8, 32),
-                0.72,
-            )
+            self._put_text(image, f'ZED ARM DEPTH: {status_text}', (8, 32), 0.72)
             message = str(metrics.get('message') or '')
             if message:
                 self._put_text(image, message[:70], (8, 63), 0.48)
@@ -776,10 +750,8 @@ class ZedDepthAssist(Node):
                 if center[0] is not None and center[1] is not None:
                     cv2.circle(image, center, 5, color, -1, cv2.LINE_AA)
                     label = 'L' if side == 'left' else 'R'
-                    side_label = '왼손 물체' if side == 'left' else '오른손 물체'
-                    self._put_user_text(
+                    self._put_text(
                         image,
-                        f'{side_label} {self._format_delta(obj.get("depth_delta_m"))}m',
                         f'{label} {self._format_delta(obj.get("depth_delta_m"))}m',
                         (center[0] + 8, max(center[1] - 8, 98)),
                         0.46,
@@ -789,11 +761,8 @@ class ZedDepthAssist(Node):
         left = hands.get('left') or {}
         right = hands.get('right') or {}
         compare_text = self._compare_text(metrics.get('gripper_depth_compare') or {})
-        compare_user_text = self._compare_user_text(metrics.get('gripper_depth_compare') or {})
-        self._put_user_text(
+        self._put_text(
             image,
-            f'왼손 {self._format_depth(left.get("hand_depth_m"))}m  '
-            f'오른손 {self._format_depth(right.get("hand_depth_m"))}m  {compare_user_text}',
             f'L HAND {self._format_depth(left.get("hand_depth_m"))}m  '
             f'R HAND {self._format_depth(right.get("hand_depth_m"))}m  {compare_text}',
             (8, 30),
@@ -801,12 +770,8 @@ class ZedDepthAssist(Node):
         )
         left_obj = left.get('nearest_object') or {}
         right_obj = right.get('nearest_object') or {}
-        self._put_user_text(
+        self._put_text(
             image,
-            f'왼손 물체 {self._format_delta(left_obj.get("depth_delta_m"))}m '
-            f'3D {self._format_depth(left_obj.get("distance_3d_m"))}m   '
-            f'오른손 물체 {self._format_delta(right_obj.get("depth_delta_m"))}m '
-            f'3D {self._format_depth(right_obj.get("distance_3d_m"))}m',
             f'L OBJ-HAND {self._format_delta(left_obj.get("depth_delta_m"))}m '
             f'3D {self._format_depth(left_obj.get("distance_3d_m"))}m   '
             f'R OBJ-HAND {self._format_delta(right_obj.get("depth_delta_m"))}m '
@@ -815,13 +780,6 @@ class ZedDepthAssist(Node):
             0.50,
         )
         return image
-
-    def _put_user_text(self, image, korean_text, fallback_text, origin, scale):
-        font_size = max(int(scale * 34), 12)
-        pil_origin = (origin[0], max(int(origin[1] - font_size), 0))
-        if draw_text_bgr(image, korean_text, pil_origin, font_size=font_size):
-            return
-        self._put_text(image, fallback_text, origin, scale)
 
     def _put_text(self, image, text, origin, scale):
         cv2.putText(image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,

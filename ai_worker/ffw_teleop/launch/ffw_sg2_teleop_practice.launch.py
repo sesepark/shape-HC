@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""One-command SG2 teleoperation practice bringup.
+"""Legacy SG2 teleoperation practice bringup.
 
-Starts follower control, low-latency cameras/feedback, and LG2 leader.
+Starts follower control and low-latency cameras/feedback. The LG2 leader is
+disabled by default because the current operator flow runs it on the main PC.
 """
 
 from launch import LaunchDescription
@@ -102,7 +103,7 @@ def generate_launch_description():
         DeclareLaunchArgument('init_position', default_value='true'),
         DeclareLaunchArgument('launch_lidar', default_value='true'),
         DeclareLaunchArgument('start_feedback', default_value='true'),
-        DeclareLaunchArgument('start_leader', default_value='true'),
+        DeclareLaunchArgument('start_leader', default_value='false'),
         DeclareLaunchArgument('start_zed', default_value='true'),
         DeclareLaunchArgument('start_wrist_cameras', default_value='true'),
         DeclareLaunchArgument('start_left_wrist', default_value='true'),

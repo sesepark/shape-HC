@@ -16,8 +16,6 @@ from std_msgs.msg import Float32
 from std_msgs.msg import String
 from trajectory_msgs.msg import JointTrajectory
 
-from ffw_teleop.text_render import draw_text_bgr
-
 
 class AlignmentStatus(Node):
 
@@ -303,38 +301,30 @@ class AlignmentStatus(Node):
         mode = str(payload.get('mode') or 'unknown').strip()
         mode_key = mode.lower()
         if mode_key == 'swerve':
-            mode_label = '이동 모드'
-            mode_label_en = 'BASE MOVE'
+            mode_label = 'BASE MOVE'
             header_color = (32, 113, 239)
         else:
-            mode_label = '팔/머리 모드'
-            mode_label_en = 'ZED/HEAD + LIFT'
+            mode_label = 'ZED/HEAD + LIFT'
             header_color = (67, 161, 92)
 
         cv2.rectangle(image, (0, 0), (width, 58), header_color, -1)
-        self._put_panel_user_text(
-            image, f'모드: {mode}', f'MODE: {mode.upper()}', (16, 38), 0.86,
-            (255, 255, 255), 2)
-        self._put_panel_user_text(
-            image, mode_label, mode_label_en, (370, 38), 0.70, (255, 255, 255), 2)
+        self._put_panel_text(
+            image, f'MODE: {mode.upper()}', (16, 38), 0.86, (255, 255, 255), 2)
+        self._put_panel_text(
+            image, mode_label, (370, 38), 0.70, (255, 255, 255), 2)
 
         head = payload.get('head') or {}
-        head_state = '머리 고정' if mode_key == 'swerve' else '머리 조작'
-        head_state_en = 'HOLD' if mode_key == 'swerve' else 'ACTIVE'
-        head_text_ko = (
-            f'{head_state}: 현재 {self._format_joint(head.get("head_joint1"))},'
-            f'{self._format_joint(head.get("head_joint2"))}  '
-            f'목표 {self._format_joint(head.get("target_head_joint1"))},'
-            f'{self._format_joint(head.get("target_head_joint2"))}  '
-            f'오차 {self._format_joint(head.get("error_head_joint1"))},'
+        head_state = 'HOLD' if mode_key == 'swerve' else 'ACTIVE'
+        head_text = (
+            f'HEAD {head_state}: CUR '
+            f'{self._format_joint(head.get("head_joint1"))},'
+            f'{self._format_joint(head.get("head_joint2"))}  TGT '
+            f'{self._format_joint(head.get("target_head_joint1"))},'
+            f'{self._format_joint(head.get("target_head_joint2"))}  ERR '
+            f'{self._format_joint(head.get("error_head_joint1"))},'
             f'{self._format_joint(head.get("error_head_joint2"))}'
         )
-        head_text_en = (
-            f'HEAD: J1 {self._format_joint(head.get("head_joint1"))} '
-            f'J2 {self._format_joint(head.get("head_joint2"))} {head_state_en}'
-        )
-        self._put_panel_user_text(
-            image, head_text_ko, head_text_en, (16, 84), 0.50, (236, 241, 245), 1)
+        self._put_panel_text(image, head_text, (16, 84), 0.50, (236, 241, 245), 1)
 
         depth_metrics = payload.get('depth_metrics') or {}
         distances = payload.get('center_distance_m') or {}
@@ -342,31 +332,26 @@ class AlignmentStatus(Node):
         right_metric = depth_metrics.get('right') or {}
         left_distance = self._format_distance(left_metric.get('target_m', left_metric.get('center_m', distances.get('left'))))
         right_distance = self._format_distance(right_metric.get('target_m', right_metric.get('center_m', distances.get('right'))))
-        left_hint = self._hint_label(left_metric.get('hint'))
-        right_hint = self._hint_label(right_metric.get('hint'))
-        self._put_panel_user_text(
-            image, f'왼손목: 집개 기준 {left_distance} {left_hint}',
-            f'L DEPTH: {left_distance} {left_metric.get("hint") or "--"}',
+        left_hint = str(left_metric.get('hint') or '--')
+        right_hint = str(right_metric.get('hint') or '--')
+        self._put_panel_text(
+            image, f'L TARGET DEPTH: {left_distance} {left_hint}',
             (16, 118), 0.50, (236, 241, 245), 1)
-        self._put_panel_user_text(
-            image, f'오른손목: 집개 기준 {right_distance} {right_hint}',
-            f'R DEPTH: {right_distance} {right_metric.get("hint") or "--"}',
+        self._put_panel_text(
+            image, f'R TARGET DEPTH: {right_distance} {right_hint}',
             (292, 118), 0.50, (236, 241, 245), 1)
 
         left_offset = self._format_offset(left_metric)
         right_offset = self._format_offset(right_metric)
-        self._put_panel_user_text(
-            image, f'왼쪽 오프셋: {left_offset}', f'L OFFSET: {left_offset}',
-            (16, 152), 0.50, (236, 241, 245), 1)
-        self._put_panel_user_text(
-            image, f'오른쪽 오프셋: {right_offset}', f'R OFFSET: {right_offset}',
-            (292, 152), 0.50, (236, 241, 245), 1)
+        self._put_panel_text(
+            image, f'L OFFSET: {left_offset}', (16, 152), 0.50, (236, 241, 245), 1)
+        self._put_panel_text(
+            image, f'R OFFSET: {right_offset}', (292, 152), 0.50, (236, 241, 245), 1)
 
         left_view = self._format_view(left_metric)
         right_view = self._format_view(right_metric)
-        self._put_panel_user_text(
-            image, f'화면: 왼쪽 {left_view}  오른쪽 {right_view}',
-            f'VIEW: L {left_view}  R {right_view}', (16, 186), 0.50, (203, 211, 218), 1)
+        self._put_panel_text(
+            image, f'VIEW: L {left_view}  R {right_view}', (16, 186), 0.50, (203, 211, 218), 1)
 
         table = payload.get('table_relative')
         if table:
@@ -374,15 +359,9 @@ class AlignmentStatus(Node):
                 f'TABLE: {self._format_distance(table.get("distance_m"))} '
                 f'HEAD ERR: {self._format_angle(table.get("heading_to_table_error_deg"))}'
             )
-            table_text_ko = (
-                f'테이블: {self._format_distance(table.get("distance_m"))} '
-                f'방향 오차 {self._format_angle(table.get("heading_to_table_error_deg"))}'
-            )
         else:
             table_text = 'TABLE: --'
-            table_text_ko = '테이블: --'
-        self._put_panel_user_text(
-            image, table_text_ko, table_text, (16, 220), 0.48, (203, 211, 218), 1)
+        self._put_panel_text(image, table_text, (16, 220), 0.48, (203, 211, 218), 1)
 
         ok, encoded = cv2.imencode(
             '.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), self.status_panel_jpeg_quality])
@@ -403,32 +382,6 @@ class AlignmentStatus(Node):
         cv2.putText(
             image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,
             color, thickness, cv2.LINE_AA)
-
-    def _put_panel_user_text(self, image, korean_text, fallback_text, origin, scale, color, thickness):
-        font_size = max(int(scale * 34), 12)
-        pil_origin = (origin[0], max(int(origin[1] - font_size), 0))
-        if draw_text_bgr(
-            image,
-            korean_text,
-            pil_origin,
-            font_size=font_size,
-            color=color,
-            stroke_width=thickness + 1,
-        ):
-            return
-        self._put_panel_text(image, fallback_text, origin, scale, color, thickness)
-
-    def _hint_label(self, hint):
-        return {
-            'ALIGNED': '정렬됨',
-            'LEFT': '왼쪽',
-            'RIGHT': '오른쪽',
-            'UP': '위',
-            'DOWN': '아래',
-            'CLOSER': '더 가까이',
-            'FARTHER': '뒤로',
-            'CHECK': '확인',
-        }.get(str(hint or '').upper(), '--')
 
     def _format_distance(self, value):
         if value is None:
