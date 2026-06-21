@@ -44,6 +44,16 @@ def make_wrist_camera_launch(condition):
     )
 
 
+def profile_value(stable_low_latency, wired_360_default, precision_one_wrist, debug_raw):
+    profile = LaunchConfiguration('teleop_feedback_profile')
+    return PythonExpression([
+        "'", profile, "' == 'stable_low_latency' and '", stable_low_latency, "' or ",
+        "'", profile, "' == 'precision_one_wrist' and '", precision_one_wrist, "' or ",
+        "'", profile, "' == 'debug_raw' and '", debug_raw, "' or '",
+        wired_360_default, "'",
+    ])
+
+
 def generate_launch_description():
     start_zed = LaunchConfiguration('start_zed')
     start_overlay = LaunchConfiguration('start_overlay')
@@ -95,10 +105,15 @@ def generate_launch_description():
             'base_image_topic': LaunchConfiguration('base_image_topic'),
             'overlay_topic': LaunchConfiguration('overlay_topic'),
             'compressed_topic': LaunchConfiguration('compressed_topic'),
+            'assist_topic': LaunchConfiguration('assist_topic'),
             'base_compressed_topic': LaunchConfiguration('base_compressed_topic'),
             'center_distance_topic': LaunchConfiguration('center_distance_topic'),
+            'metrics_topic': LaunchConfiguration('metrics_topic'),
+            'side': 'right',
+            'feedback_visual_mode': LaunchConfiguration('feedback_visual_mode'),
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
             'publish_base_compressed': LaunchConfiguration('publish_base_compressed'),
+            'publish_metrics': LaunchConfiguration('publish_metrics'),
             'publish_fps': LaunchConfiguration('overlay_fps'),
             'depth_scale': LaunchConfiguration('depth_scale'),
             'min_depth_m': LaunchConfiguration('min_depth_m'),
@@ -114,6 +129,10 @@ def generate_launch_description():
             'contour_near_depth_m': LaunchConfiguration('contour_near_depth_m'),
             'contour_min_area_px': LaunchConfiguration('contour_min_area_px'),
             'invalid_depth_mode': LaunchConfiguration('invalid_depth_mode'),
+            'assist_component_margin_m': LaunchConfiguration('assist_component_margin_m'),
+            'assist_offset_threshold_px': LaunchConfiguration('assist_offset_threshold_px'),
+            'assist_target_depth_m': LaunchConfiguration('assist_target_depth_m'),
+            'assist_depth_tolerance_m': LaunchConfiguration('assist_depth_tolerance_m'),
         }],
     )
 
@@ -128,10 +147,15 @@ def generate_launch_description():
             'base_image_topic': LaunchConfiguration('left_base_image_topic'),
             'overlay_topic': LaunchConfiguration('left_overlay_topic'),
             'compressed_topic': LaunchConfiguration('left_compressed_topic'),
+            'assist_topic': LaunchConfiguration('left_assist_topic'),
             'base_compressed_topic': LaunchConfiguration('left_base_compressed_topic'),
             'center_distance_topic': LaunchConfiguration('left_center_distance_topic'),
+            'metrics_topic': LaunchConfiguration('left_metrics_topic'),
+            'side': 'left',
+            'feedback_visual_mode': LaunchConfiguration('feedback_visual_mode'),
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
             'publish_base_compressed': LaunchConfiguration('publish_base_compressed'),
+            'publish_metrics': LaunchConfiguration('publish_metrics'),
             'publish_fps': LaunchConfiguration('overlay_fps'),
             'depth_scale': LaunchConfiguration('depth_scale'),
             'min_depth_m': LaunchConfiguration('min_depth_m'),
@@ -147,6 +171,10 @@ def generate_launch_description():
             'contour_near_depth_m': LaunchConfiguration('contour_near_depth_m'),
             'contour_min_area_px': LaunchConfiguration('contour_min_area_px'),
             'invalid_depth_mode': LaunchConfiguration('invalid_depth_mode'),
+            'assist_component_margin_m': LaunchConfiguration('assist_component_margin_m'),
+            'assist_offset_threshold_px': LaunchConfiguration('assist_offset_threshold_px'),
+            'assist_target_depth_m': LaunchConfiguration('assist_target_depth_m'),
+            'assist_depth_tolerance_m': LaunchConfiguration('assist_depth_tolerance_m'),
         }],
     )
 
@@ -178,6 +206,8 @@ def generate_launch_description():
             'cmd_vel_topic': LaunchConfiguration('cmd_vel_topic'),
             'right_center_distance_topic': LaunchConfiguration('center_distance_topic'),
             'left_center_distance_topic': LaunchConfiguration('left_center_distance_topic'),
+            'right_depth_metrics_topic': LaunchConfiguration('metrics_topic'),
+            'left_depth_metrics_topic': LaunchConfiguration('left_metrics_topic'),
             'status_panel_topic': LaunchConfiguration('status_panel_topic'),
             'status_panel_jpeg_quality': LaunchConfiguration('status_panel_jpeg_quality'),
             'table_reference_enabled': LaunchConfiguration('table_reference_enabled'),
@@ -188,6 +218,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument('teleop_feedback_profile', default_value='wired_360_default'),
         DeclareLaunchArgument('start_zed', default_value='true'),
         DeclareLaunchArgument('start_wrist_cameras', default_value='true'),
         DeclareLaunchArgument('start_left_wrist', default_value='true'),
@@ -198,12 +229,24 @@ def generate_launch_description():
         DeclareLaunchArgument('zed_camera_model', default_value='zedm'),
         DeclareLaunchArgument('zed_camera_name', default_value='zed'),
         DeclareLaunchArgument('zed_ros_params_override_path', default_value=''),
-        DeclareLaunchArgument('left_depth_profile', default_value='480,270,15'),
-        DeclareLaunchArgument('right_depth_profile', default_value='480,270,15'),
-        DeclareLaunchArgument('left_color_profile', default_value='424,240,15'),
-        DeclareLaunchArgument('right_color_profile', default_value='424,240,15'),
-        DeclareLaunchArgument('enable_left_color', default_value='true'),
-        DeclareLaunchArgument('enable_right_color', default_value='true'),
+        DeclareLaunchArgument(
+            'left_depth_profile',
+            default_value=profile_value('480,270,15', '480,270,30', '480,270,15', '480,270,30')),
+        DeclareLaunchArgument(
+            'right_depth_profile',
+            default_value=profile_value('480,270,15', '480,270,30', '640,480,15', '480,270,30')),
+        DeclareLaunchArgument(
+            'left_color_profile',
+            default_value=profile_value('424,240,15', '424,240,15', '424,240,15', '424,240,30')),
+        DeclareLaunchArgument(
+            'right_color_profile',
+            default_value=profile_value('424,240,15', '424,240,15', '424,240,15', '424,240,30')),
+        DeclareLaunchArgument(
+            'enable_left_color',
+            default_value=profile_value('false', 'false', 'false', 'true')),
+        DeclareLaunchArgument(
+            'enable_right_color',
+            default_value=profile_value('false', 'false', 'false', 'true')),
         DeclareLaunchArgument(
             'depth_topic', default_value='/camera_right/camera_right/depth/image_rect_raw'),
         DeclareLaunchArgument(
@@ -213,9 +256,13 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'compressed_topic', default_value='/teleop/wrist_right/depth_overlay/compressed'),
         DeclareLaunchArgument(
+            'assist_topic', default_value='/teleop/wrist_right/depth_assist/compressed'),
+        DeclareLaunchArgument(
             'base_compressed_topic', default_value='/teleop/wrist_right/color/compressed'),
         DeclareLaunchArgument(
             'center_distance_topic', default_value='/teleop/wrist_right/center_distance_m'),
+        DeclareLaunchArgument(
+            'metrics_topic', default_value='/teleop/wrist_right/depth_metrics'),
         DeclareLaunchArgument(
             'left_depth_topic', default_value='/camera_left/camera_left/depth/image_rect_raw'),
         DeclareLaunchArgument(
@@ -225,26 +272,46 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'left_compressed_topic', default_value='/teleop/wrist_left/depth_overlay/compressed'),
         DeclareLaunchArgument(
+            'left_assist_topic', default_value='/teleop/wrist_left/depth_assist/compressed'),
+        DeclareLaunchArgument(
             'left_base_compressed_topic', default_value='/teleop/wrist_left/color/compressed'),
         DeclareLaunchArgument(
             'left_center_distance_topic', default_value='/teleop/wrist_left/center_distance_m'),
-        DeclareLaunchArgument('publish_raw_overlay', default_value='false'),
-        DeclareLaunchArgument('publish_base_compressed', default_value='true'),
-        DeclareLaunchArgument('overlay_fps', default_value='10.0'),
+        DeclareLaunchArgument(
+            'left_metrics_topic', default_value='/teleop/wrist_left/depth_metrics'),
+        DeclareLaunchArgument(
+            'feedback_visual_mode',
+            default_value=profile_value('assist', 'assist', 'assist', 'overlay')),
+        DeclareLaunchArgument(
+            'publish_raw_overlay',
+            default_value=profile_value('false', 'false', 'false', 'true')),
+        DeclareLaunchArgument(
+            'publish_base_compressed',
+            default_value=profile_value('false', 'false', 'false', 'true')),
+        DeclareLaunchArgument('publish_metrics', default_value='true'),
+        DeclareLaunchArgument(
+            'overlay_fps',
+            default_value=profile_value('10.0', '15.0', '15.0', '15.0')),
         DeclareLaunchArgument('depth_scale', default_value='0.001'),
-        DeclareLaunchArgument('min_depth_m', default_value='0.10'),
-        DeclareLaunchArgument('max_depth_m', default_value='1.50'),
+        DeclareLaunchArgument('min_depth_m', default_value='0.07'),
+        DeclareLaunchArgument('max_depth_m', default_value='0.70'),
         DeclareLaunchArgument('roi_size_px', default_value='32'),
-        DeclareLaunchArgument('jpeg_quality', default_value='70'),
+        DeclareLaunchArgument(
+            'jpeg_quality',
+            default_value=profile_value('70', '75', '75', '80')),
         DeclareLaunchArgument('colormap', default_value='VIRIDIS'),
         DeclareLaunchArgument('depth_colormap', default_value=''),
         DeclareLaunchArgument('base_alpha', default_value='0.70'),
         DeclareLaunchArgument('depth_alpha', default_value='0.30'),
         DeclareLaunchArgument('base_image_timeout_s', default_value='0.5'),
         DeclareLaunchArgument('show_depth_contours', default_value='true'),
-        DeclareLaunchArgument('contour_near_depth_m', default_value='0.55'),
+        DeclareLaunchArgument('contour_near_depth_m', default_value='0.45'),
         DeclareLaunchArgument('contour_min_area_px', default_value='30.0'),
         DeclareLaunchArgument('invalid_depth_mode', default_value='base_only'),
+        DeclareLaunchArgument('assist_component_margin_m', default_value='0.08'),
+        DeclareLaunchArgument('assist_offset_threshold_px', default_value='24'),
+        DeclareLaunchArgument('assist_target_depth_m', default_value='0.30'),
+        DeclareLaunchArgument('assist_depth_tolerance_m', default_value='0.04'),
         DeclareLaunchArgument('right_goal_topic', default_value='/r_goal_pose'),
         DeclareLaunchArgument('left_goal_topic', default_value='/l_goal_pose'),
         DeclareLaunchArgument('right_current_topic', default_value='/r_gripper_pose'),

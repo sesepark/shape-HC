@@ -45,6 +45,10 @@ class AlignmentStatus(Node):
             'right_center_distance_topic', '/teleop/wrist_right/center_distance_m')
         self.declare_parameter(
             'left_center_distance_topic', '/teleop/wrist_left/center_distance_m')
+        self.declare_parameter(
+            'right_depth_metrics_topic', '/teleop/wrist_right/depth_metrics')
+        self.declare_parameter(
+            'left_depth_metrics_topic', '/teleop/wrist_left/depth_metrics')
         self.declare_parameter('table_reference_enabled', False)
         self.declare_parameter('table_x_m', 0.0)
         self.declare_parameter('table_y_m', 0.0)
@@ -76,6 +80,7 @@ class AlignmentStatus(Node):
         self.latest_cmd_vel = None
         self.latest_mode = 'arm_control'
         self.latest_center_distance = {}
+        self.latest_depth_metrics = {}
         self.last_event_warn_time = None
         self._subscribe_pose('right_goal', self.get_parameter('right_goal_topic').value)
         self._subscribe_pose('left_goal', self.get_parameter('left_goal_topic').value)
@@ -126,6 +131,12 @@ class AlignmentStatus(Node):
         self._subscribe_if_topic(
             Float32, self.get_parameter('left_center_distance_topic').value,
             lambda msg: self._center_distance_callback('left', msg))
+        self._subscribe_if_topic(
+            String, self.get_parameter('right_depth_metrics_topic').value,
+            lambda msg: self._depth_metrics_callback('right', msg))
+        self._subscribe_if_topic(
+            String, self.get_parameter('left_depth_metrics_topic').value,
+            lambda msg: self._depth_metrics_callback('left', msg))
 
         self.get_logger().info(
             f'teleop practice event recording enabled: {self.practice_event_log_path}')
@@ -179,6 +190,12 @@ class AlignmentStatus(Node):
     def _center_distance_callback(self, side, msg):
         self.latest_center_distance[side] = float(msg.data)
 
+    def _depth_metrics_callback(self, side, msg):
+        try:
+            self.latest_depth_metrics[side] = json.loads(msg.data)
+        except json.JSONDecodeError:
+            self._warn_event_throttled(f'failed to parse {side} depth metrics')
+
     def _publish_status(self):
         right = self._arm_status('right')
         left = self._arm_status('left')
@@ -195,6 +212,7 @@ class AlignmentStatus(Node):
             'left': left,
             'all_ok': all_ok,
             'center_distance_m': self._center_distance_snapshot(),
+            'depth_metrics': self._depth_metrics_snapshot(),
             'table_relative': self._table_relative_snapshot(),
         }
         self.latest_alignment_status = payload
@@ -220,6 +238,7 @@ class AlignmentStatus(Node):
             'odom': self._odom_snapshot(),
             'cmd_vel': self._cmd_vel_snapshot(),
             'center_distance_m': self._center_distance_snapshot(),
+            'depth_metrics': self._depth_metrics_snapshot(),
             'table_relative': self._table_relative_snapshot(),
             'alignment': self.latest_alignment_status,
         }
@@ -272,20 +291,25 @@ class AlignmentStatus(Node):
         self._put_panel_text(
             image, mode_label, (350, 38), 0.70, (255, 255, 255), 2)
 
+        depth_metrics = payload.get('depth_metrics') or {}
         distances = payload.get('center_distance_m') or {}
-        left_distance = self._format_distance(distances.get('left'))
-        right_distance = self._format_distance(distances.get('right'))
+        left_metric = depth_metrics.get('left') or {}
+        right_metric = depth_metrics.get('right') or {}
+        left_distance = self._format_distance(left_metric.get('center_m', distances.get('left')))
+        right_distance = self._format_distance(right_metric.get('center_m', distances.get('right')))
+        left_hint = str(left_metric.get('hint') or '--')
+        right_hint = str(right_metric.get('hint') or '--')
         self._put_panel_text(
-            image, f'L CENTER: {left_distance}', (16, 91), 0.58, (236, 241, 245), 1)
+            image, f'L DEPTH: {left_distance} {left_hint}', (16, 91), 0.54, (236, 241, 245), 1)
         self._put_panel_text(
-            image, f'R CENTER: {right_distance}', (292, 91), 0.58, (236, 241, 245), 1)
+            image, f'R DEPTH: {right_distance} {right_hint}', (292, 91), 0.54, (236, 241, 245), 1)
 
-        left_align = self._format_arm_status(payload.get('left') or {})
-        right_align = self._format_arm_status(payload.get('right') or {})
+        left_offset = self._format_offset(left_metric)
+        right_offset = self._format_offset(right_metric)
         self._put_panel_text(
-            image, f'L ALIGN: {left_align}', (16, 125), 0.58, (236, 241, 245), 1)
+            image, f'L OFFSET: {left_offset}', (16, 125), 0.54, (236, 241, 245), 1)
         self._put_panel_text(
-            image, f'R ALIGN: {right_align}', (292, 125), 0.58, (236, 241, 245), 1)
+            image, f'R OFFSET: {right_offset}', (292, 125), 0.54, (236, 241, 245), 1)
 
         table = payload.get('table_relative')
         if table:
@@ -326,6 +350,16 @@ class AlignmentStatus(Node):
         if value is None:
             return '-- deg'
         return f'{float(value):+.1f} deg'
+
+    def _format_offset(self, metrics):
+        offset_x = metrics.get('offset_x_px')
+        offset_y = metrics.get('offset_y_px')
+        axis = metrics.get('axis_angle_deg')
+        if offset_x is None or offset_y is None:
+            return '--'
+        if axis is None:
+            return f'{int(offset_x):+d},{int(offset_y):+d}px'
+        return f'{int(offset_x):+d},{int(offset_y):+d}px {float(axis):+.0f}deg'
 
     def _format_arm_status(self, status):
         if not status.get('available'):
@@ -383,6 +417,11 @@ class AlignmentStatus(Node):
             side: self._clean_float(distance)
             for side, distance in self.latest_center_distance.items()
         }
+
+    def _depth_metrics_snapshot(self):
+        if not self.latest_depth_metrics:
+            return None
+        return self.latest_depth_metrics.copy()
 
     def _table_relative_snapshot(self):
         msg = self.latest_odom

@@ -14,6 +14,17 @@ from launch.actions import TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch.substitutions import PythonExpression
+
+
+def profile_value(stable_low_latency, wired_360_default, precision_one_wrist, debug_raw):
+    profile = LaunchConfiguration('teleop_feedback_profile')
+    return PythonExpression([
+        "'", profile, "' == 'stable_low_latency' and '", stable_low_latency, "' or ",
+        "'", profile, "' == 'precision_one_wrist' and '", precision_one_wrist, "' or ",
+        "'", profile, "' == 'debug_raw' and '", debug_raw, "' or '",
+        wired_360_default, "'",
+    ])
 
 
 def generate_launch_description():
@@ -41,6 +52,7 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(teleop_launch_dir, 'teleop_wrist_depth.launch.py')),
         launch_arguments={
+            'teleop_feedback_profile': LaunchConfiguration('teleop_feedback_profile'),
             'start_zed': LaunchConfiguration('start_zed'),
             'start_wrist_cameras': LaunchConfiguration('start_wrist_cameras'),
             'start_left_wrist': LaunchConfiguration('start_left_wrist'),
@@ -83,9 +95,16 @@ def generate_launch_description():
         DeclareLaunchArgument('start_right_wrist', default_value='true'),
         DeclareLaunchArgument('start_left_overlay', default_value='true'),
         DeclareLaunchArgument('start_right_overlay', default_value='true'),
-        DeclareLaunchArgument('overlay_fps', default_value='10.0'),
-        DeclareLaunchArgument('publish_raw_overlay', default_value='false'),
-        DeclareLaunchArgument('publish_base_compressed', default_value='true'),
+        DeclareLaunchArgument('teleop_feedback_profile', default_value='wired_360_default'),
+        DeclareLaunchArgument(
+            'overlay_fps',
+            default_value=profile_value('10.0', '15.0', '15.0', '15.0')),
+        DeclareLaunchArgument(
+            'publish_raw_overlay',
+            default_value=profile_value('false', 'false', 'false', 'true')),
+        DeclareLaunchArgument(
+            'publish_base_compressed',
+            default_value=profile_value('false', 'false', 'false', 'true')),
         DeclareLaunchArgument('record_practice_events', default_value='true'),
         DeclareLaunchArgument(
             'practice_event_log_path', default_value='~/teleop_practice_events.jsonl'),

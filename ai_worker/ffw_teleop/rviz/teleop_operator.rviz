@@ -111,22 +111,22 @@ Visualization Manager:
       Max Value: 1
       Median window: 5
       Min Value: 0
-      Name: Left Wrist Color
+      Name: Left Wrist Depth Assist
       Normalize Range: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /teleop/wrist_left/color/compressed
+        Value: /teleop/wrist_left/depth_assist/compressed
       Transport Hint: compressed
       Value: true
     - Class: rviz_default_plugins/Image
-      Enabled: true
+      Enabled: false
       Max Value: 1
       Median window: 5
       Min Value: 0
-      Name: Left Wrist Overlay
+      Name: Left Wrist Overlay Debug
       Normalize Range: true
       Topic:
         Depth: 5
@@ -135,28 +135,28 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /teleop/wrist_left/depth_overlay/compressed
       Transport Hint: compressed
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Image
       Enabled: true
       Max Value: 1
       Median window: 5
       Min Value: 0
-      Name: Right Wrist Color
+      Name: Right Wrist Depth Assist
       Normalize Range: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /teleop/wrist_right/color/compressed
+        Value: /teleop/wrist_right/depth_assist/compressed
       Transport Hint: compressed
       Value: true
     - Class: rviz_default_plugins/Image
-      Enabled: true
+      Enabled: false
       Max Value: 1
       Median window: 5
       Min Value: 0
-      Name: Right Wrist Overlay
+      Name: Right Wrist Overlay Debug
       Normalize Range: true
       Topic:
         Depth: 5
@@ -165,7 +165,7 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /teleop/wrist_right/depth_overlay/compressed
       Transport Hint: compressed
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
