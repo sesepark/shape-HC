@@ -4,9 +4,6 @@
 Starts follower control, low-latency cameras/feedback, and LG2 leader.
 """
 
-import os
-
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
@@ -14,7 +11,9 @@ from launch.actions import TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch.substitutions import PathJoinSubstitution
 from launch.substitutions import PythonExpression
+from launch_ros.substitutions import FindPackageShare
 
 
 def profile_value(stable_low_latency, wired_360_default, precision_one_wrist, debug_raw):
@@ -28,9 +27,6 @@ def profile_value(stable_low_latency, wired_360_default, precision_one_wrist, de
 
 
 def generate_launch_description():
-    bringup_launch_dir = os.path.join(get_package_share_directory('ffw_bringup'), 'launch')
-    teleop_launch_dir = os.path.join(get_package_share_directory('ffw_teleop'), 'launch')
-
     leader_controller_config = LaunchConfiguration('leader_controller_config')
     init_position = LaunchConfiguration('init_position')
     launch_lidar = LaunchConfiguration('launch_lidar')
@@ -39,7 +35,11 @@ def generate_launch_description():
 
     follower = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(bringup_launch_dir, 'ffw_sg2_follower_ai.launch.py')),
+            PathJoinSubstitution([
+                FindPackageShare('ffw_bringup'),
+                'launch',
+                'ffw_sg2_follower_ai.launch.py',
+            ])),
         launch_arguments={
             'launch_cameras': 'false',
             'launch_lidar': launch_lidar,
@@ -50,7 +50,11 @@ def generate_launch_description():
 
     feedback = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(teleop_launch_dir, 'teleop_wrist_depth.launch.py')),
+            PathJoinSubstitution([
+                FindPackageShare('ffw_teleop'),
+                'launch',
+                'teleop_wrist_depth.launch.py',
+            ])),
         launch_arguments={
             'teleop_feedback_profile': LaunchConfiguration('teleop_feedback_profile'),
             'start_zed': LaunchConfiguration('start_zed'),
@@ -74,7 +78,11 @@ def generate_launch_description():
 
     leader = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(bringup_launch_dir, 'ffw_lg2_leader_ai.launch.py')),
+            PathJoinSubstitution([
+                FindPackageShare('ffw_bringup'),
+                'launch',
+                'ffw_lg2_leader_ai.launch.py',
+            ])),
         launch_arguments={
             'leader_controller_config': leader_controller_config,
         }.items(),
