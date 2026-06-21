@@ -50,6 +50,12 @@ def generate_launch_description():
         name='teleop_operator_rviz',
         arguments=['-d', rviz_config],
         output='screen',
+        emulate_tty=True,
+        additional_env={
+            'LIBGL_ALWAYS_SOFTWARE': '1',
+            'QT_OPENGL': 'software',
+            'QT_X11_NO_MITSHM': '1',
+        },
         condition=IfCondition(start_rviz),
     )
 
