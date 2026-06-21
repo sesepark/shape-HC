@@ -20,6 +20,7 @@ class WristDepthOverlay(Node):
         self.declare_parameter('overlay_topic', '/teleop/wrist_right/depth_overlay')
         self.declare_parameter('compressed_topic', '/teleop/wrist_right/depth_overlay/compressed')
         self.declare_parameter('center_distance_topic', '/teleop/wrist_right/center_distance_m')
+        self.declare_parameter('publish_raw_overlay', False)
         self.declare_parameter('publish_fps', 10.0)
         self.declare_parameter('depth_scale', 0.001)
         self.declare_parameter('min_depth_m', 0.10)
@@ -41,6 +42,8 @@ class WristDepthOverlay(Node):
         self.overlay_topic = self.get_parameter('overlay_topic').value
         self.compressed_topic = self.get_parameter('compressed_topic').value
         self.center_distance_topic = self.get_parameter('center_distance_topic').value
+        self.publish_raw_overlay = self._as_bool(
+            self.get_parameter('publish_raw_overlay').value)
         self.publish_fps = max(float(self.get_parameter('publish_fps').value), 0.1)
         self.depth_scale = float(self.get_parameter('depth_scale').value)
         self.min_depth_m = float(self.get_parameter('min_depth_m').value)
@@ -73,8 +76,10 @@ class WristDepthOverlay(Node):
         if self.base_image_topic:
             self.base_image_sub = self.create_subscription(
                 Image, self.base_image_topic, self._base_image_callback, qos_profile_sensor_data)
-        self.overlay_pub = self.create_publisher(
-            Image, self.overlay_topic, qos_profile_sensor_data)
+        self.overlay_pub = None
+        if self.publish_raw_overlay:
+            self.overlay_pub = self.create_publisher(
+                Image, self.overlay_topic, qos_profile_sensor_data)
         self.compressed_pub = self.create_publisher(
             CompressedImage, self.compressed_topic, qos_profile_sensor_data)
         self.center_pub = self.create_publisher(
@@ -82,7 +87,8 @@ class WristDepthOverlay(Node):
 
         self.get_logger().info(
             f'wrist depth overlay: depth={self.depth_topic}, base={self.base_image_topic or "none"} '
-            f'-> {self.overlay_topic}, {self.compressed_topic}')
+            f'-> raw={self.overlay_topic if self.publish_raw_overlay else "disabled"}, '
+            f'compressed={self.compressed_topic}')
 
     def _resolve_colormap(self, name):
         attr = f'COLORMAP_{name.strip().upper()}'
@@ -124,7 +130,8 @@ class WristDepthOverlay(Node):
         overlay = self._make_overlay(depth_m, center_distance, base_image)
 
         self._publish_center_distance(center_distance)
-        self._publish_overlay_image(msg, overlay)
+        if self.publish_raw_overlay:
+            self._publish_overlay_image(msg, overlay)
         self._publish_compressed_image(msg, overlay)
 
     def _image_to_bgr(self, msg):
@@ -313,6 +320,8 @@ class WristDepthOverlay(Node):
         self.center_pub.publish(msg)
 
     def _publish_overlay_image(self, source_msg, overlay):
+        if self.overlay_pub is None:
+            return
         msg = Image()
         msg.header = source_msg.header
         msg.height = overlay.shape[0]
