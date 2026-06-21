@@ -105,14 +105,6 @@ class AlignmentStatus(Node):
             PoseStamped, topic, lambda msg, key=key: self._pose_callback(key, msg), 1)
 
     def _init_practice_event_inputs(self):
-        if not self.record_practice_events:
-            return
-        self._subscribe_if_topic(
-            String, self.get_parameter('practice_event_input_topic').value,
-            self._manual_practice_event_callback)
-        self._subscribe_if_topic(
-            String, self.get_parameter('tact_trigger_topic').value,
-            self._tact_trigger_callback)
         self._subscribe_if_topic(
             String, self.get_parameter('joystick_mode_topic').value,
             self._joystick_mode_callback)
@@ -137,6 +129,15 @@ class AlignmentStatus(Node):
         self._subscribe_if_topic(
             String, self.get_parameter('left_depth_metrics_topic').value,
             lambda msg: self._depth_metrics_callback('left', msg))
+
+        if not self.record_practice_events:
+            return
+        self._subscribe_if_topic(
+            String, self.get_parameter('practice_event_input_topic').value,
+            self._manual_practice_event_callback)
+        self._subscribe_if_topic(
+            String, self.get_parameter('tact_trigger_topic').value,
+            self._tact_trigger_callback)
 
         self.get_logger().info(
             f'teleop practice event recording enabled: {self.practice_event_log_path}')

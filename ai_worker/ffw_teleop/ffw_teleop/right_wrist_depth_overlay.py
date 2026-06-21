@@ -383,7 +383,7 @@ class WristDepthOverlay(Node):
             'center': (int(round(cx)), int(round(cy))),
         }
         if points.shape[0] >= 5:
-            mean, eigenvectors = cv2.PCACompute(points, mean=None, maxComponents=2)
+            mean, eigenvectors = cv2.PCACompute(points, None)
             direction = eigenvectors[0]
             angle_deg = math.degrees(math.atan2(float(direction[1]), float(direction[0])))
             axis = {
@@ -404,7 +404,8 @@ class WristDepthOverlay(Node):
             'depth_m': self._clean_float(nearest_depth),
             'threshold_m': self._clean_float(near_depth),
         }
-        return component | axis, draw
+        component.update(axis)
+        return component, draw
 
     def _depth_hint(self, nearest, center_m):
         if not nearest.get('valid'):
