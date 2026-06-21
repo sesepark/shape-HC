@@ -6,16 +6,19 @@ Runs the RViz operator view and the LG2 leader controller on the main PC.
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.actions import IncludeLaunchDescription
+from launch.actions import LogInfo
 from launch.conditions import IfCondition
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import Command
+from launch.substitutions import FindExecutable
 from launch.substitutions import LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    description_file = LaunchConfiguration('description_file')
     leader_controller_config = LaunchConfiguration('leader_controller_config')
     leader_left_port = LaunchConfiguration('leader_left_port')
     leader_right_port = LaunchConfiguration('leader_right_port')
@@ -28,19 +31,82 @@ def generate_launch_description():
     operator_screen_layout_config = LaunchConfiguration('operator_screen_layout_config')
     operator_layout_action = LaunchConfiguration('operator_layout_action')
     operator_layout_store_path = LaunchConfiguration('operator_layout_store_path')
+    leader_namespace = 'leader'
+    leader_robot_description_topic = '/leader/robot_description'
 
-    leader = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
+    robot_controllers = PathJoinSubstitution([
+        FindPackageShare('ffw_bringup'),
+        'config',
+        'ffw_lg2_leader',
+        leader_controller_config,
+    ])
+
+    robot_description_content = ParameterValue(
+        Command([
+            PathJoinSubstitution([FindExecutable(name='xacro')]),
+            ' ',
             PathJoinSubstitution([
-                FindPackageShare('ffw_bringup'),
-                'launch',
-                'ffw_lg2_leader_ai.launch.py',
-            ])),
-        launch_arguments={
-            'leader_controller_config': leader_controller_config,
-            'leader_left_port': leader_left_port,
-            'leader_right_port': leader_right_port,
-        }.items(),
+                FindPackageShare('ffw_description'),
+                'urdf',
+                'ffw_lg2_leader',
+                description_file,
+            ]),
+            ' ',
+            'leader_left_port:=',
+            leader_left_port,
+            ' ',
+            'leader_right_port:=',
+            leader_right_port,
+        ]),
+        value_type=str,
+    )
+    robot_description = {'robot_description': robot_description_content}
+
+    leader_robot_state_publisher = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        namespace=leader_namespace,
+        output='both',
+        parameters=[
+            robot_description,
+            {
+                'frame_prefix': 'leader_',
+                'use_robot_description_topic': False,
+            },
+        ],
+        remappings=[
+            ('robot_description', leader_robot_description_topic),
+        ],
+        condition=IfCondition(start_leader),
+    )
+
+    leader_control = Node(
+        package='controller_manager',
+        executable='ros2_control_node',
+        namespace=leader_namespace,
+        parameters=[robot_description, robot_controllers],
+        remappings=[
+            ('~/robot_description', leader_robot_description_topic),
+            ('robot_description', leader_robot_description_topic),
+        ],
+        output='both',
+        condition=IfCondition(start_leader),
+    )
+
+    leader_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        namespace=leader_namespace,
+        arguments=[
+            'joint_trajectory_command_broadcaster',
+            'spring_actuator_controller_left',
+            'spring_actuator_controller_right',
+            'joystick_controller',
+            'joint_state_broadcaster',
+            '--controller-manager',
+            '/leader/controller_manager',
+        ],
+        parameters=[robot_description],
         condition=IfCondition(start_leader),
     )
 
@@ -88,6 +154,9 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
+            'description_file',
+            default_value='ffw_lg2_leader.urdf.xacro'),
+        DeclareLaunchArgument(
             'leader_controller_config',
             default_value='ffw_lg2_leader_ai_hardware_controller.yaml'),
         DeclareLaunchArgument('leader_left_port', default_value='/dev/left_leader'),
@@ -121,7 +190,17 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'operator_layout_store_path',
             default_value='~/.config/ffw_teleop/operator_screen_layout.json'),
-        leader,
+        LogInfo(msg=['LG2 Leader controller config: ', leader_controller_config],
+                condition=IfCondition(start_leader)),
+        LogInfo(msg=['LG2 Leader robot_description topic: ', leader_robot_description_topic],
+                condition=IfCondition(start_leader)),
+        LogInfo(msg=['LG2 Leader left port: ', leader_left_port],
+                condition=IfCondition(start_leader)),
+        LogInfo(msg=['LG2 Leader right port: ', leader_right_port],
+                condition=IfCondition(start_leader)),
+        leader_robot_state_publisher,
+        leader_control,
+        leader_spawner,
         rviz,
         mission_control,
         operator_layout,

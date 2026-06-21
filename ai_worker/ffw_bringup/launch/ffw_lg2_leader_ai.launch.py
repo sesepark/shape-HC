@@ -18,6 +18,7 @@
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo
+from launch.conditions import IfCondition
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -46,12 +47,18 @@ def generate_launch_description():
             default_value='/dev/right_leader',
             description='Serial device for the right LG2 leader Dynamixel bus.',
         ),
+        DeclareLaunchArgument(
+            'publish_robot_description_topic',
+            default_value='false',
+            description='Start the legacy robot_description topic publisher.',
+        ),
     ]
 
     description_file = LaunchConfiguration('description_file')
     leader_controller_config = LaunchConfiguration('leader_controller_config')
     leader_left_port = LaunchConfiguration('leader_left_port')
     leader_right_port = LaunchConfiguration('leader_right_port')
+    publish_robot_description_topic = LaunchConfiguration('publish_robot_description_topic')
     leader_namespace = 'leader'
     leader_robot_description_topic = '/leader/robot_description'
 
@@ -92,6 +99,7 @@ def generate_launch_description():
         remappings=[
             ('robot_description', leader_robot_description_topic),
         ],
+        condition=IfCondition(publish_robot_description_topic),
     )
 
     # ros2_control Node
