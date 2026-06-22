@@ -34,6 +34,11 @@ constexpr size_t TACT_SWITCH_INTERFACE_INDEX = 2;
 constexpr double TACT_SWITCH_THRESHOLD = 0.5;
 constexpr double DEFAULT_JOG_SCALE = 0.1;
 
+  // cmd_vel scaling factors
+constexpr double LINEAR_X_SCALE = 3.0;
+constexpr double LINEAR_Y_SCALE = 3.0;
+constexpr double ANGULAR_Z_SCALE = 2.0;
+
   // Sensor names
 const char LEFT_JOYSTICK_NAME[] = "sensorxel_l_joy";
 const char RIGHT_JOYSTICK_NAME[] = "sensorxel_r_joy";
@@ -234,9 +239,9 @@ void JoystickController::publish_cmd_vel(bool swerve_mode, const JoystickValues 
   geometry_msgs::msg::Twist twist_msg;
 
   if (swerve_mode) {
-    twist_msg.linear.x = -joystick_values.left_x * params_.swerve_linear_x_max_mps;
-    twist_msg.linear.y = joystick_values.left_y * params_.swerve_linear_y_max_mps;
-    twist_msg.angular.z = -joystick_values.right_y * params_.swerve_angular_z_max_radps;
+    twist_msg.linear.x = -joystick_values.left_x / constants::LINEAR_X_SCALE;
+    twist_msg.linear.y = joystick_values.left_y / constants::LINEAR_Y_SCALE;
+    twist_msg.angular.z = -joystick_values.right_y / constants::ANGULAR_Z_SCALE;
   } else {
     // Zero twist when not in swerve mode
     twist_msg.linear.x = 0.0;
@@ -245,52 +250,6 @@ void JoystickController::publish_cmd_vel(bool swerve_mode, const JoystickValues 
   }
 
   cmd_vel_pub_->publish(twist_msg);
-}
-
-void JoystickController::publish_zero_cmd_vel()
-{
-  if (!cmd_vel_pub_) {
-    return;
-  }
-  geometry_msgs::msg::Twist twist_msg;
-  cmd_vel_pub_->publish(twist_msg);
-}
-
-void JoystickController::refresh_last_active_positions_from_joint_states(
-  const std::string & sensor_name)
-{
-  if (!has_joint_states_) {
-    return;
-  }
-
-  auto joints_it = sensor_controlled_joints_.find(sensor_name);
-  if (joints_it == sensor_controlled_joints_.end()) {
-    return;
-  }
-
-  const auto & controlled_joints = joints_it->second;
-  auto & last_active_positions = sensor_last_active_positions_[sensor_name];
-  last_active_positions.resize(controlled_joints.size(), 0.0);
-
-  for (size_t i = 0; i < controlled_joints.size(); ++i) {
-    const auto & joint_name = controlled_joints[i];
-    auto it = std::find(current_joint_states_.name.begin(), current_joint_states_.name.end(),
-        joint_name);
-    if (it == current_joint_states_.name.end()) {
-      continue;
-    }
-    const size_t index = std::distance(current_joint_states_.name.begin(), it);
-    if (index < current_joint_states_.position.size()) {
-      last_active_positions[i] = current_joint_states_.position[index];
-    }
-  }
-}
-
-void JoystickController::refresh_all_last_active_positions_from_joint_states()
-{
-  for (const auto & sensor_name : sensorxel_joy_names_) {
-    refresh_last_active_positions_from_joint_states(sensor_name);
-  }
 }
 
 void JoystickController::publish_joystick_values()
@@ -363,15 +322,10 @@ void JoystickController::handle_tact_switches(
     if (both_pressed_flag_) {
       // Mode change - both buttons were pressed at some point
       std_msgs::msg::String mode_msg;
-      const std::string previous_mode = current_mode_;
       if (current_mode_ == constants::ARM_CONTROL_MODE) {
         current_mode_ = constants::SWERVE_MODE;
       } else {
         current_mode_ = constants::ARM_CONTROL_MODE;
-      }
-      refresh_all_last_active_positions_from_joint_states();
-      if (previous_mode == constants::SWERVE_MODE && current_mode_ != constants::SWERVE_MODE) {
-        publish_zero_cmd_vel();
       }
       mode_msg.data = current_mode_;
       mode_pub_->publish(mode_msg);
@@ -447,9 +401,20 @@ void JoystickController::joint_states_callback(const sensor_msgs::msg::JointStat
 
   // initialize last_active_positions_ by sensor
   if (!has_joint_states_) {
-    has_joint_states_ = true;
-    refresh_all_last_active_positions_from_joint_states();
-    return;
+    for (const auto & sensor_name : sensorxel_joy_names_) {
+      const auto & controlled_joints = sensor_controlled_joints_[sensor_name];
+      auto & last_active_positions = sensor_last_active_positions_[sensor_name];
+      last_active_positions.resize(controlled_joints.size());
+      for (size_t i = 0; i < controlled_joints.size(); ++i) {
+        const auto & joint_name = controlled_joints[i];
+        auto it = std::find(current_joint_states_.name.begin(), current_joint_states_.name.end(),
+            joint_name);
+        if (it != current_joint_states_.name.end()) {
+          size_t index = std::distance(current_joint_states_.name.begin(), it);
+          last_active_positions[i] = current_joint_states_.position[index];
+        }
+      }
+    }
   }
 
   has_joint_states_ = true;
@@ -478,39 +443,36 @@ controller_interface::return_type JoystickController::update(
     // Read and normalize sensor values
     std::vector<double> normalized_values = read_and_normalize_sensor_values(sensor_idx);
 
-    // Check only motion axes. The tact switch is handled separately and should not break hold.
-    bool any_sensorxel_joy_active = false;
-    for (size_t value_idx = 0; value_idx < normalized_values.size(); ++value_idx) {
-      if (value_idx == constants::TACT_SWITCH_INTERFACE_INDEX) {
-        continue;
-      }
-      if (std::abs(normalized_values[value_idx]) > 0.0) {
-        any_sensorxel_joy_active = true;
-        break;
-      }
-    }
+    // Check if any joystick is active
+    bool any_sensorxel_joy_active = std::any_of(normalized_values.begin(), normalized_values.end(),
+        [](double value) {return std::abs(value) > 0.0;});
 
     // Update joystick values
     update_joystick_values(sensor_name, normalized_values, joystick_values,
                           left_tact_switch_pressed, right_tact_switch_pressed);
 
-    const bool joint_motion_active = swerve_mode ?
-      (sensor_name == constants::RIGHT_JOYSTICK_NAME && std::abs(joystick_values.right_x) > 0.0) :
-      any_sensorxel_joy_active;
-
     // Update last active positions when joystick becomes inactive
-    bool sensor_was_active = sensor_was_active_[sensor_name];
-    if (sensor_was_active && !joint_motion_active && !current_joint_states_.name.empty() &&
+    if (was_active_ && !any_sensorxel_joy_active && !current_joint_states_.name.empty() &&
       !controlled_joints.empty())
     {
-      refresh_last_active_positions_from_joint_states(sensor_name);
+      for (size_t i = 0; i < controlled_joints.size(); ++i) {
+        const auto & joint_name = controlled_joints[i];
+        auto it = std::find(current_joint_states_.name.begin(), current_joint_states_.name.end(),
+            joint_name);
+        if (it != current_joint_states_.name.end()) {
+          size_t index = std::distance(current_joint_states_.name.begin(), it);
+          if (i < last_active_positions.size()) {
+            last_active_positions[i] = current_joint_states_.position[index];
+          }
+        }
+      }
     }
 
     // Publish joint trajectory
     if (!current_joint_states_.name.empty() && !controlled_joints.empty()) {
       std::vector<double> positions;
 
-      if (joint_motion_active) {
+      if (swerve_mode || any_sensorxel_joy_active) {
         positions = calculate_joint_positions(controlled_joints, normalized_values,
                                            sensor_name, swerve_mode, joystick_values);
         // Update last active positions with new positions
@@ -524,7 +486,7 @@ controller_interface::return_type JoystickController::update(
       publish_joint_trajectory(controlled_joints, positions, sensor_name);
     }
 
-    sensor_was_active_[sensor_name] = joint_motion_active;
+    was_active_ = any_sensorxel_joy_active;
     sensorxel_joy_values_[sensor_idx] = normalized_values;
   }
 
@@ -665,7 +627,8 @@ controller_interface::CallbackReturn JoystickController::on_configure(
   right_tact_press_start_time_ = rclcpp::Time(0);
 
   // Create publisher for cmd_vel
-  cmd_vel_pub_ = get_node()->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 1);
+  cmd_vel_pub_ = get_node()->create_publisher<geometry_msgs::msg::Twist>(
+    params_.cmd_vel_topic, 10);
 
   RCLCPP_INFO(get_node()->get_logger(), "JoystickController configured successfully.");
   return CallbackReturn::SUCCESS;
@@ -705,7 +668,6 @@ controller_interface::CallbackReturn JoystickController::on_activate(
 controller_interface::CallbackReturn JoystickController::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  publish_zero_cmd_vel();
   RCLCPP_INFO(get_node()->get_logger(), "JoystickController deactivated successfully.");
   return CallbackReturn::SUCCESS;
 }

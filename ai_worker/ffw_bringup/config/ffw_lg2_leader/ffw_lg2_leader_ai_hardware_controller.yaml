@@ -106,9 +106,7 @@
       joint_states_topic: "/joint_states"
       sensorxel_l_joy_joint_trajectory_topic: "/leader/joystick_controller_left/joint_trajectory"
       sensorxel_r_joy_joint_trajectory_topic: "/leader/joystick_controller_right/joint_trajectory"
+      cmd_vel_topic: "/teleop/joystick_cmd_vel"
       sensorxel_l_joy_jog_scale: 0.06
       sensorxel_r_joy_jog_scale: 0.01
-      deadzone: 0.10
-      swerve_linear_x_max_mps: 0.18
-      swerve_linear_y_max_mps: 0.18
-      swerve_angular_z_max_radps: 0.30
+      deadzone: 0.05

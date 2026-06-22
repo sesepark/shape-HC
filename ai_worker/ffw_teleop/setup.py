@@ -42,9 +42,11 @@ setup(
             'zed_depth_assist = ffw_teleop.zed_depth_assist:main',
             'teleop_alignment_status = ffw_teleop.alignment_status:main',
             'teleop_bandwidth_monitor = ffw_teleop.teleop_bandwidth_monitor:main',
+            'teleop_cmd_vel_mux = ffw_teleop.teleop_cmd_vel_mux:main',
             'mission_mode_manager = ffw_teleop.mission_mode_manager:main',
             'operator_layout_manager = ffw_teleop.operator_layout_manager:main',
             'operator_image_viewer = ffw_teleop.operator_image_viewer:main',
+            'operator_drive_panel = ffw_teleop.operator_drive_panel:main',
         ],
     },
 )

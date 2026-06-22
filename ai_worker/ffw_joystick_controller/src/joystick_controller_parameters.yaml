@@ -74,6 +74,12 @@ joystick_controller:
     description: "Topic to publish joint trajectory commands",
     read_only: true
   }
+  cmd_vel_topic: {
+    type: string,
+    default_value: "/cmd_vel",
+    description: "Topic to publish base velocity commands",
+    read_only: true
+  }
   sensorxel_l_joy_jog_scale: {
     type: double,
     default_value: 0.1,
@@ -90,24 +96,6 @@ joystick_controller:
     type: double,
     default_value: 0.05,
     description: "Deadzone around center position (0.0 to 1.0)",
-    read_only: true
-  }
-  swerve_linear_x_max_mps: {
-    type: double,
-    default_value: 0.3333333333,
-    description: "Maximum linear x velocity in swerve mode at full joystick input",
-    read_only: true
-  }
-  swerve_linear_y_max_mps: {
-    type: double,
-    default_value: 0.3333333333,
-    description: "Maximum linear y velocity in swerve mode at full joystick input",
-    read_only: true
-  }
-  swerve_angular_z_max_radps: {
-    type: double,
-    default_value: 0.5,
-    description: "Maximum angular z velocity in swerve mode at full joystick input",
     read_only: true
   }
   long_press_duration: {

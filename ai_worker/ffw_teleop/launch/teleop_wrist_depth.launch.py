@@ -40,6 +40,7 @@ def make_wrist_camera_launch(condition):
             'pointcloud.enable2': 'false',
             'colorizer.enable1': 'false',
             'colorizer.enable2': 'false',
+            'right_wrist_start_delay_s': LaunchConfiguration('right_wrist_start_delay_s'),
         }.items(),
     )
 
@@ -388,6 +389,7 @@ def generate_launch_description():
             default_value=profile_value('true', 'true', 'true', 'true')),
         DeclareLaunchArgument('enable_left_align_depth', default_value='true'),
         DeclareLaunchArgument('enable_right_align_depth', default_value='true'),
+        DeclareLaunchArgument('right_wrist_start_delay_s', default_value='3.0'),
         DeclareLaunchArgument(
             'depth_topic',
             default_value='/camera_right/camera_right/aligned_depth_to_color/image_raw'),
@@ -430,7 +432,7 @@ def generate_launch_description():
             default_value=profile_value('false', 'false', 'false', 'true')),
         DeclareLaunchArgument(
             'publish_base_compressed',
-            default_value=profile_value('false', 'false', 'false', 'true')),
+            default_value=profile_value('false', 'true', 'false', 'true')),
         DeclareLaunchArgument('publish_metrics', default_value='true'),
         DeclareLaunchArgument(
             'overlay_fps',

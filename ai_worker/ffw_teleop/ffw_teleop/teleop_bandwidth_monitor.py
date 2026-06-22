@@ -13,6 +13,8 @@ STREAM_ROWS = (
     ('zed', 'ZED'),
     ('wrist_left', 'L WRIST'),
     ('wrist_right', 'R WRIST'),
+    ('wrist_left_color', 'L COLOR'),
+    ('wrist_right_color', 'R COLOR'),
 )
 
 
@@ -33,6 +35,7 @@ class TeleopBandwidthMonitor(Node):
         self.declare_parameter('panel_jpeg_quality', 95)
         self.declare_parameter('network_interface', '')
         self.declare_parameter('network_tx_enabled', True)
+        self.declare_parameter('target_fps', 30.0)
 
         self.stream_stats_topic = str(
             self.get_parameter('stream_stats_topic').value).strip()
@@ -50,6 +53,7 @@ class TeleopBandwidthMonitor(Node):
             self.get_parameter('network_tx_enabled').value)
         self.network_interface = str(
             self.get_parameter('network_interface').value).strip()
+        self.target_fps = max(float(self.get_parameter('target_fps').value), 0.1)
         if self.network_tx_enabled and not self.network_interface:
             self.network_interface = self._detect_network_interface()
         self.last_tx_sample = None
@@ -227,8 +231,8 @@ class TeleopBandwidthMonitor(Node):
             image, net_text, p(340, 116), 0.52 * scale, (226, 232, 238), line(1))
 
         streams = payload.get('streams') or {}
-        y = int(round(154 * scale))
-        row_step = int(round(40 * scale))
+        y = int(round(148 * scale))
+        row_step = int(round(34 * scale))
         for name, label in STREAM_ROWS:
             self._draw_stream_row(image, label, streams.get(name) or {}, y, scale)
             y += row_step
@@ -270,7 +274,8 @@ class TeleopBandwidthMonitor(Node):
             quality = stream.get('jpeg_quality')
             res = f'{width}x{height}' if width and height else '--'
             q_text = f'Q{int(quality)}' if quality is not None else 'Q--'
-            text = f'{label:<7} {fps:4.1f}Hz  {mbps:5.1f}M  {res:<9} {q_text}'
+            fps_state = 'LOW FPS' if fps < self.target_fps * 0.8 else 'OK'
+            text = f'{label:<7} {fps:4.1f}Hz  {mbps:5.1f}M  {res:<9} {q_text} {fps_state}'
             bar_color = self._usage_color(usage)
         else:
             text = f'{label:<7} -- Hz    -- M     STALE'

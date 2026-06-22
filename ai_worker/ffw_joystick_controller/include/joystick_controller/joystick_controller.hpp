@@ -113,10 +113,7 @@ protected:
     const std::vector<double> & positions,
     const std::string & sensor_name);
   void publish_cmd_vel(bool swerve_mode, const JoystickValues & joystick_values);
-  void publish_zero_cmd_vel();
   void publish_joystick_values();
-  void refresh_last_active_positions_from_joint_states(const std::string & sensor_name);
-  void refresh_all_last_active_positions_from_joint_states();
   void handle_tact_switches(
     bool left_tact_pressed, bool right_tact_pressed, const rclcpp::Time & current_time);
   std::vector<std::string> sensorxel_joy_names_;
@@ -127,7 +124,7 @@ protected:
   std::vector<std::vector<std::reference_wrapper<hardware_interface::LoanedStateInterface>>>
   joint_state_interface_;
   sensor_msgs::msg::JointState current_joint_states_;
-  std::map<std::string, bool> sensor_was_active_;  // Track previous motion state per joystick
+  bool was_active_ = false;  // Track previous sensorxel_joy state
   bool has_joint_states_ = false;  // Track if joint states have been received
 
   std::map<std::string, std::vector<std::string>> sensor_controlled_joints_;

@@ -58,7 +58,23 @@ def generate_launch_description():
     start_leader = LaunchConfiguration('start_leader')
     start_mission_control = LaunchConfiguration('start_mission_control')
     start_operator_image_viewer = LaunchConfiguration('start_operator_image_viewer')
+    start_operator_drive_panel = LaunchConfiguration('start_operator_drive_panel')
     start_operator_layout = LaunchConfiguration('start_operator_layout')
+    start_cmd_vel_mux = LaunchConfiguration('start_cmd_vel_mux')
+    joystick_cmd_vel_topic = LaunchConfiguration('joystick_cmd_vel_topic')
+    keyboard_cmd_vel_topic = LaunchConfiguration('keyboard_cmd_vel_topic')
+    keyboard_enabled_topic = LaunchConfiguration('keyboard_enabled_topic')
+    cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
+    cmd_vel_mux_status_topic = LaunchConfiguration('cmd_vel_mux_status_topic')
+    keyboard_linear_x_mps = LaunchConfiguration('keyboard_linear_x_mps')
+    keyboard_linear_y_mps = LaunchConfiguration('keyboard_linear_y_mps')
+    keyboard_angular_z_radps = LaunchConfiguration('keyboard_angular_z_radps')
+    keyboard_publish_hz = LaunchConfiguration('keyboard_publish_hz')
+    keyboard_key_timeout_s = LaunchConfiguration('keyboard_key_timeout_s')
+    keyboard_stale_timeout_s = LaunchConfiguration('keyboard_stale_timeout_s')
+    joystick_stale_timeout_s = LaunchConfiguration('joystick_stale_timeout_s')
+    operator_ok_topic = LaunchConfiguration('operator_ok_topic')
+    ok_overlay_duration_s = LaunchConfiguration('ok_overlay_duration_s')
     operator_image_viewer_layout_store_path = LaunchConfiguration(
         'operator_image_viewer_layout_store_path')
     operator_image_viewer_canvas_width = LaunchConfiguration(
@@ -161,8 +177,35 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'profiles_config': mission_profiles_config,
+            'keyboard_cmd_vel_topic': keyboard_cmd_vel_topic,
+            'keyboard_enabled_topic': keyboard_enabled_topic,
+            'keyboard_linear_x_mps': keyboard_linear_x_mps,
+            'keyboard_linear_y_mps': keyboard_linear_y_mps,
+            'keyboard_angular_z_radps': keyboard_angular_z_radps,
+            'keyboard_publish_hz': keyboard_publish_hz,
+            'keyboard_key_timeout_s': keyboard_key_timeout_s,
+            'operator_ok_topic': operator_ok_topic,
+            'ok_overlay_duration_s': ok_overlay_duration_s,
         }],
         condition=IfCondition(start_mission_control),
+    )
+
+    cmd_vel_mux = Node(
+        package='ffw_teleop',
+        executable='teleop_cmd_vel_mux',
+        name='teleop_cmd_vel_mux',
+        output='screen',
+        parameters=[{
+            'joystick_cmd_vel_topic': joystick_cmd_vel_topic,
+            'keyboard_cmd_vel_topic': keyboard_cmd_vel_topic,
+            'keyboard_enabled_topic': keyboard_enabled_topic,
+            'cmd_vel_topic': cmd_vel_topic,
+            'status_topic': cmd_vel_mux_status_topic,
+            'publish_hz': keyboard_publish_hz,
+            'keyboard_stale_timeout_s': keyboard_stale_timeout_s,
+            'joystick_stale_timeout_s': joystick_stale_timeout_s,
+        }],
+        condition=IfCondition(start_cmd_vel_mux),
     )
 
     operator_image_viewer = Node(
@@ -185,6 +228,29 @@ def generate_launch_description():
             'window_y': 40,
         }],
         condition=IfCondition(start_operator_image_viewer),
+    )
+
+    operator_drive_panel = Node(
+        package='ffw_teleop',
+        executable='operator_drive_panel',
+        name='operator_drive_panel',
+        output='screen',
+        parameters=[{
+            'window_title': 'Teleop Drive Control',
+            'window_width': 420,
+            'window_height': 520,
+            'window_x': 80,
+            'window_y': 560,
+            'keyboard_cmd_vel_topic': keyboard_cmd_vel_topic,
+            'keyboard_enabled_topic': keyboard_enabled_topic,
+            'keyboard_linear_x_mps': keyboard_linear_x_mps,
+            'keyboard_linear_y_mps': keyboard_linear_y_mps,
+            'keyboard_angular_z_radps': keyboard_angular_z_radps,
+            'click_jog_duration_s': keyboard_key_timeout_s,
+            'operator_ok_topic': operator_ok_topic,
+            'ok_overlay_duration_s': ok_overlay_duration_s,
+        }],
+        condition=IfCondition(start_operator_drive_panel),
     )
 
     operator_layout = Node(
@@ -217,6 +283,24 @@ def generate_launch_description():
         DeclareLaunchArgument('rviz_gl_mode', default_value='native'),
         DeclareLaunchArgument('start_mission_control', default_value='true'),
         DeclareLaunchArgument('start_operator_image_viewer', default_value='true'),
+        DeclareLaunchArgument('start_operator_drive_panel', default_value='true'),
+        DeclareLaunchArgument('start_cmd_vel_mux', default_value='true'),
+        DeclareLaunchArgument('joystick_cmd_vel_topic', default_value='/teleop/joystick_cmd_vel'),
+        DeclareLaunchArgument('keyboard_cmd_vel_topic', default_value='/teleop/keyboard_cmd_vel'),
+        DeclareLaunchArgument(
+            'keyboard_enabled_topic', default_value='/teleop/keyboard_drive/enabled'),
+        DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
+        DeclareLaunchArgument(
+            'cmd_vel_mux_status_topic', default_value='/teleop/cmd_vel_mux/status'),
+        DeclareLaunchArgument('keyboard_linear_x_mps', default_value='0.04'),
+        DeclareLaunchArgument('keyboard_linear_y_mps', default_value='0.04'),
+        DeclareLaunchArgument('keyboard_angular_z_radps', default_value='0.10'),
+        DeclareLaunchArgument('keyboard_publish_hz', default_value='30.0'),
+        DeclareLaunchArgument('keyboard_key_timeout_s', default_value='0.15'),
+        DeclareLaunchArgument('keyboard_stale_timeout_s', default_value='0.20'),
+        DeclareLaunchArgument('joystick_stale_timeout_s', default_value='0.30'),
+        DeclareLaunchArgument('operator_ok_topic', default_value='/teleop/operator_ok'),
+        DeclareLaunchArgument('ok_overlay_duration_s', default_value='3.0'),
         DeclareLaunchArgument(
             'operator_image_viewer_layout_store_path',
             default_value='~/.config/ffw_teleop/operator_image_viewer_layout.json'),
@@ -263,7 +347,9 @@ def generate_launch_description():
         leader_control,
         leader_spawner,
         OpaqueFunction(function=make_rviz_node),
+        TimerAction(period=1.0, actions=[cmd_vel_mux]),
         TimerAction(period=1.5, actions=[mission_control]),
         TimerAction(period=2.5, actions=[operator_image_viewer]),
+        TimerAction(period=3.0, actions=[operator_drive_panel]),
         TimerAction(period=4.0, actions=[operator_layout]),
     ])

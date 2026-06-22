@@ -18,6 +18,7 @@ def generate_launch_description():
     start_bandwidth_monitor = LaunchConfiguration('start_bandwidth_monitor')
     bandwidth_available_mbps = LaunchConfiguration('bandwidth_available_mbps')
     bandwidth_panel_topic = LaunchConfiguration('bandwidth_panel_topic')
+    right_wrist_start_delay_s = LaunchConfiguration('right_wrist_start_delay_s')
 
     robot_teleop = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -35,6 +36,7 @@ def generate_launch_description():
             'start_bandwidth_monitor': start_bandwidth_monitor,
             'bandwidth_available_mbps': bandwidth_available_mbps,
             'bandwidth_panel_topic': bandwidth_panel_topic,
+            'right_wrist_start_delay_s': right_wrist_start_delay_s,
         }.items(),
     )
 
@@ -43,5 +45,6 @@ def generate_launch_description():
         DeclareLaunchArgument('bandwidth_available_mbps', default_value='350.0'),
         DeclareLaunchArgument(
             'bandwidth_panel_topic', default_value='/teleop/bandwidth_monitor/compressed'),
+        DeclareLaunchArgument('right_wrist_start_delay_s', default_value='3.0'),
         robot_teleop,
     ])

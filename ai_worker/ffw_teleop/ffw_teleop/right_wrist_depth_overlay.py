@@ -884,8 +884,15 @@ class WristDepthOverlay(Node):
 
     def _publish_base_compressed_image(self, source_msg, image):
         header = self.latest_base_image_header if self.latest_base_image_header else source_msg.header
+        stats_name = f'{self.stream_stats_name}_color' if self.stream_stats_name else ''
         self._publish_jpeg(
-            self.base_compressed_pub, header, image, 'failed to JPEG-encode base image')
+            self.base_compressed_pub,
+            header,
+            image,
+            'failed to JPEG-encode base image',
+            stats_name,
+            self.base_compressed_topic,
+        )
 
     def _publish_jpeg(self, publisher, header, image, warn_message,
                       stats_name=None, published_topic=''):

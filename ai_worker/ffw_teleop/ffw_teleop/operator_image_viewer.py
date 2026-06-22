@@ -21,6 +21,8 @@ DEFAULT_STREAMS = [
     'ZED|/teleop/zed/depth_assist/compressed',
     'L WRIST|/teleop/wrist_left/depth_assist/compressed',
     'R WRIST|/teleop/wrist_right/depth_assist/compressed',
+    'L COLOR|/teleop/wrist_left/color/compressed',
+    'R COLOR|/teleop/wrist_right/color/compressed',
 ]
 
 TOOLBAR_HEIGHT = 42
@@ -53,7 +55,7 @@ class OperatorImageViewer(Node):
             '~/.config/ffw_teleop/operator_image_viewer_layout.json')
         self.declare_parameter('show_toolbar', True)
         self.declare_parameter('show_hz', 20.0)
-        self.declare_parameter('max_stale_sec', 2.0)
+        self.declare_parameter('max_stale_sec', 0.75)
         self.declare_parameter('window_x', 1520)
         self.declare_parameter('window_y', 40)
         self.declare_parameter('headless_ok', True)

@@ -1,8 +1,10 @@
 import copy
 import json
 import os
+import time
 
 import cv2
+from geometry_msgs.msg import Twist
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -10,6 +12,7 @@ from rclpy.qos import DurabilityPolicy
 from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage
+from std_msgs.msg import Bool
 from std_msgs.msg import String
 
 
@@ -85,6 +88,15 @@ class MissionModeManager(Node):
         self.declare_parameter('gui_enabled', True)
         self.declare_parameter('layout_command_topic', '/teleop/operator_layout/command')
         self.declare_parameter('layout_status_topic', '/teleop/operator_layout/status')
+        self.declare_parameter('keyboard_cmd_vel_topic', '/teleop/keyboard_cmd_vel')
+        self.declare_parameter('keyboard_enabled_topic', '/teleop/keyboard_drive/enabled')
+        self.declare_parameter('keyboard_linear_x_mps', 0.04)
+        self.declare_parameter('keyboard_linear_y_mps', 0.04)
+        self.declare_parameter('keyboard_angular_z_radps', 0.10)
+        self.declare_parameter('keyboard_publish_hz', 30.0)
+        self.declare_parameter('keyboard_key_timeout_s', 0.15)
+        self.declare_parameter('operator_ok_topic', '/teleop/operator_ok')
+        self.declare_parameter('ok_overlay_duration_s', 3.0)
 
         self.profiles_config = str(self.get_parameter('profiles_config').value).strip()
         self.select_topic = str(self.get_parameter('select_topic').value).strip()
@@ -101,6 +113,22 @@ class MissionModeManager(Node):
             self.get_parameter('layout_command_topic').value).strip()
         self.layout_status_topic = str(
             self.get_parameter('layout_status_topic').value).strip()
+        self.keyboard_cmd_vel_topic = str(
+            self.get_parameter('keyboard_cmd_vel_topic').value).strip()
+        self.keyboard_enabled_topic = str(
+            self.get_parameter('keyboard_enabled_topic').value).strip()
+        self.keyboard_linear_x_mps = max(
+            float(self.get_parameter('keyboard_linear_x_mps').value), 0.0)
+        self.keyboard_linear_y_mps = max(
+            float(self.get_parameter('keyboard_linear_y_mps').value), 0.0)
+        self.keyboard_angular_z_radps = max(
+            float(self.get_parameter('keyboard_angular_z_radps').value), 0.0)
+        keyboard_publish_hz = max(float(self.get_parameter('keyboard_publish_hz').value), 1.0)
+        self.keyboard_key_timeout_s = max(
+            float(self.get_parameter('keyboard_key_timeout_s').value), 0.05)
+        self.operator_ok_topic = str(self.get_parameter('operator_ok_topic').value).strip()
+        self.ok_overlay_duration_s = max(
+            float(self.get_parameter('ok_overlay_duration_s').value), 0.1)
 
         profile_data = self._load_profiles(self.profiles_config)
         self.missions = profile_data['missions']
@@ -112,16 +140,29 @@ class MissionModeManager(Node):
         self.tk = None
         self.messagebox = None
         self.gui_widgets = {}
+        self.keyboard_drive_enabled = False
+        self.pressed_drive_keys = {}
+        self.ok_overlay_until_s = 0.0
 
         state_qos = QoSProfile(depth=1)
         state_qos.reliability = ReliabilityPolicy.RELIABLE
         state_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        drive_qos = QoSProfile(depth=1)
+        drive_qos.reliability = ReliabilityPolicy.BEST_EFFORT
+        drive_qos.durability = DurabilityPolicy.VOLATILE
         self.mission_id_pub = self.create_publisher(
             String, self.mission_id_topic, state_qos)
         self.mission_state_pub = self.create_publisher(
             String, self.mission_state_topic, state_qos)
         self.panel_pub = self.create_publisher(
             CompressedImage, self.mission_panel_topic, 1)
+        self.keyboard_cmd_pub = self.create_publisher(
+            Twist, self.keyboard_cmd_vel_topic, drive_qos)
+        self.keyboard_enabled_pub = self.create_publisher(
+            Bool, self.keyboard_enabled_topic, state_qos)
+        self.operator_ok_pub = self.create_publisher(String, self.operator_ok_topic, 10)
+        self.operator_ok_sub = self.create_subscription(
+            String, self.operator_ok_topic, self._operator_ok_callback, 10)
         self.layout_command_pub = None
         if self.layout_command_topic:
             self.layout_command_pub = self.create_publisher(
@@ -133,8 +174,11 @@ class MissionModeManager(Node):
             self.layout_status_sub = self.create_subscription(
                 String, self.layout_status_topic, self._layout_status_callback, 10)
         self.timer = self.create_timer(1.0 / publish_hz, self._publish_state)
+        self.keyboard_timer = self.create_timer(
+            1.0 / keyboard_publish_hz, self._publish_keyboard_command)
 
         self._init_gui()
+        self._publish_keyboard_enabled()
         self._publish_state()
         self.get_logger().info(
             f'mission mode manager active: mission={self.active_mission}, '
@@ -231,6 +275,22 @@ class MissionModeManager(Node):
             parts.append(message)
         self._set_layout_status(f'Layout: {" - ".join(parts) or text}')
 
+    def _operator_ok_callback(self, msg):
+        text = str(msg.data or '').strip()
+        if not text:
+            return
+        duration_s = self.ok_overlay_duration_s
+        try:
+            payload = json.loads(text)
+            if str(payload.get('event') or '').strip().lower() != 'ok':
+                return
+            duration_s = max(float(payload.get('duration_s', duration_s)), 0.1)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            if text.lower() != 'ok':
+                return
+        self.ok_overlay_until_s = time.time() + duration_s
+        self._publish_state()
+
     def _set_mission(self, mission, source):
         mission = self._normalize_mission(mission)
         if mission is None:
@@ -245,6 +305,7 @@ class MissionModeManager(Node):
 
     def _state_payload(self):
         profile = self.missions.get(self.active_mission, {})
+        now_s = time.time()
         return {
             'stamp_sec': self.get_clock().now().nanoseconds / 1e9,
             'mission_id': self.active_mission,
@@ -255,6 +316,8 @@ class MissionModeManager(Node):
             ],
             'updated_by': self.updated_by,
             'available_missions': sorted(self.missions.keys()),
+            'ok_active': now_s < self.ok_overlay_until_s,
+            'ok_until_sec': self.ok_overlay_until_s,
         }
 
     def _publish_state(self):
@@ -370,7 +433,26 @@ class MissionModeManager(Node):
             (200, 206, 214),
             line(1),
         )
+        if payload.get('ok_active'):
+            self._draw_ok_overlay(image, scale)
         return image
+
+    def _draw_ok_overlay(self, image, scale):
+        height, width = image.shape[:2]
+        overlay = image.copy()
+        cv2.rectangle(overlay, (0, 0), (width - 1, height - 1), (32, 150, 70), -1)
+        cv2.addWeighted(overlay, 0.82, image, 0.18, 0, image)
+        text = 'OK'
+        font_scale = 5.4 * scale
+        thickness = max(int(round(10 * scale)), 2)
+        size, _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+        origin = ((width - size[0]) // 2, (height + size[1]) // 2)
+        cv2.putText(
+            image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, font_scale,
+            (0, 0, 0), thickness + max(int(round(5 * scale)), 2), cv2.LINE_AA)
+        cv2.putText(
+            image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, font_scale,
+            (255, 255, 255), thickness, cv2.LINE_AA)
 
     def _draw_wrapped(self, image, text, origin, max_width, scale, color):
         words = str(text).split()
@@ -418,10 +500,12 @@ class MissionModeManager(Node):
         self.messagebox = messagebox
         self.root = root
         root.title('Mission Control')
-        root.geometry('420x460+80+80')
+        root.geometry('420x660+80+80')
         root.configure(bg='#202226')
         root.protocol('WM_DELETE_WINDOW', root.iconify)
-        root.bind('<Key>', self._on_key_press)
+        root.bind_all('<KeyPress>', self._on_key_press)
+        root.bind_all('<KeyRelease>', self._on_key_release)
+        root.bind('<FocusOut>', self._on_focus_out)
 
         title = tk.Label(
             root,
@@ -512,9 +596,71 @@ class MissionModeManager(Node):
         layout_status.pack(fill='x', padx=16, pady=(0, 8))
         self.gui_widgets['layout_status'] = layout_status
 
+        drive_title = tk.Label(
+            root,
+            text='Keyboard Drive',
+            bg='#202226',
+            fg='#d7dde2',
+            font=('Helvetica', 11, 'bold'),
+            anchor='w',
+        )
+        drive_title.pack(fill='x', padx=16, pady=(6, 2))
+
+        drive_frame = tk.Frame(root, bg='#202226')
+        drive_frame.pack(fill='x', padx=14, pady=(0, 4))
+        self.gui_widgets['keyboard_enabled_var'] = tk.BooleanVar(value=False)
+        drive_enable = tk.Checkbutton(
+            drive_frame,
+            text='Enable',
+            variable=self.gui_widgets['keyboard_enabled_var'],
+            command=lambda: self._set_keyboard_drive_enabled(
+                bool(self.gui_widgets['keyboard_enabled_var'].get()), 'gui'),
+            bg='#202226',
+            fg='#f2f5f7',
+            selectcolor='#30343a',
+            activebackground='#202226',
+            activeforeground='#ffffff',
+            font=('Helvetica', 10, 'bold'),
+        )
+        drive_enable.pack(side='left', padx=4)
+        stop_button = tk.Button(
+            drive_frame,
+            text='STOP',
+            width=8,
+            height=1,
+            command=self._stop_keyboard_drive,
+            font=('Helvetica', 10, 'bold'),
+            bg='#6b2f2f',
+            fg='#ffffff',
+        )
+        stop_button.pack(side='left', padx=4)
+        ok_button = tk.Button(
+            drive_frame,
+            text='OK',
+            width=8,
+            height=1,
+            command=lambda: self._send_ok('button'),
+            font=('Helvetica', 10, 'bold'),
+            bg='#2f7f49',
+            fg='#ffffff',
+        )
+        ok_button.pack(side='left', padx=4)
+
+        drive_status = tk.Label(
+            root,
+            text='Drive: disabled',
+            bg='#202226',
+            fg='#9ca6af',
+            font=('Helvetica', 10),
+            anchor='w',
+            wraplength=380,
+        )
+        drive_status.pack(fill='x', padx=16, pady=(0, 8))
+        self.gui_widgets['drive_status'] = drive_status
+
         hint = tk.Label(
             root,
-            text='Keys: A / B / C / D',
+            text='Keys: A/B/C/D mission, arrows drive, Shift+Left/Right rotate, Space stop, O ok',
             bg='#202226',
             fg='#9ca6af',
             font=('Helvetica', 10),
@@ -524,9 +670,150 @@ class MissionModeManager(Node):
         self._update_gui()
 
     def _on_key_press(self, event):
+        keysym = str(getattr(event, 'keysym', '') or '')
+        if keysym == 'space':
+            self._stop_keyboard_drive()
+            return
+        if keysym in ('Up', 'Down', 'Left', 'Right'):
+            if self.keyboard_drive_enabled:
+                drive_key = self._drive_key_from_event(event)
+                if drive_key:
+                    self.pressed_drive_keys[drive_key] = time.time()
+                    self._update_drive_status()
+            return
+
+        char = str(getattr(event, 'char', '') or '')
+        if char.lower() == 'o':
+            self._send_ok('keyboard')
+            return
+
         mission = self._normalize_mission(getattr(event, 'char', ''))
         if mission is not None:
             self._set_mission(mission, 'keyboard')
+
+    def _on_key_release(self, event):
+        keysym = str(getattr(event, 'keysym', '') or '')
+        if keysym in ('Up', 'Down'):
+            self.pressed_drive_keys.pop(keysym.lower(), None)
+        elif keysym in ('Left', 'Right'):
+            self.pressed_drive_keys.pop(keysym.lower(), None)
+            self.pressed_drive_keys.pop(f'shift_{keysym.lower()}', None)
+        elif keysym in ('Shift_L', 'Shift_R'):
+            self.pressed_drive_keys.pop('shift_left', None)
+            self.pressed_drive_keys.pop('shift_right', None)
+        self._update_drive_status()
+
+    def _on_focus_out(self, event):
+        del event
+        self.pressed_drive_keys.clear()
+        self._update_drive_status()
+
+    def _drive_key_from_event(self, event):
+        keysym = str(getattr(event, 'keysym', '') or '')
+        shift_pressed = bool(int(getattr(event, 'state', 0) or 0) & 0x0001)
+        if keysym in ('Left', 'Right') and shift_pressed:
+            return f'shift_{keysym.lower()}'
+        if keysym in ('Up', 'Down', 'Left', 'Right'):
+            return keysym.lower()
+        return ''
+
+    def _active_drive_keys(self):
+        if not self.pressed_drive_keys:
+            return set()
+        now_s = time.time()
+        active = {
+            key for key, stamp_s in self.pressed_drive_keys.items()
+            if now_s - stamp_s <= self.keyboard_key_timeout_s
+        }
+        if len(active) != len(self.pressed_drive_keys):
+            self.pressed_drive_keys = {key: self.pressed_drive_keys[key] for key in active}
+        return active
+
+    def _publish_keyboard_enabled(self):
+        msg = Bool()
+        msg.data = bool(self.keyboard_drive_enabled)
+        self.keyboard_enabled_pub.publish(msg)
+
+    def _set_keyboard_drive_enabled(self, enabled, source):
+        enabled = bool(enabled)
+        if self.keyboard_drive_enabled == enabled:
+            self._publish_keyboard_enabled()
+            self._update_drive_status()
+            return
+        self.keyboard_drive_enabled = enabled
+        if not enabled:
+            self.pressed_drive_keys.clear()
+            self.keyboard_cmd_pub.publish(Twist())
+        self._publish_keyboard_enabled()
+        self._update_drive_status()
+        self.get_logger().info(f'keyboard drive {"enabled" if enabled else "disabled"} by {source}')
+
+    def _stop_keyboard_drive(self):
+        self.pressed_drive_keys.clear()
+        self.keyboard_cmd_pub.publish(Twist())
+        self._update_drive_status()
+
+    def _make_keyboard_twist(self):
+        twist = Twist()
+        if not self.keyboard_drive_enabled:
+            return twist
+        active_keys = self._active_drive_keys()
+        if 'up' in active_keys and 'down' not in active_keys:
+            twist.linear.x = self.keyboard_linear_x_mps
+        elif 'down' in active_keys and 'up' not in active_keys:
+            twist.linear.x = -self.keyboard_linear_x_mps
+        if 'left' in active_keys and 'right' not in active_keys:
+            twist.linear.y = self.keyboard_linear_y_mps
+        elif 'right' in active_keys and 'left' not in active_keys:
+            twist.linear.y = -self.keyboard_linear_y_mps
+        if (
+            'shift_left' in active_keys and
+            'shift_right' not in active_keys
+        ):
+            twist.angular.z = self.keyboard_angular_z_radps
+        elif (
+            'shift_right' in active_keys and
+            'shift_left' not in active_keys
+        ):
+            twist.angular.z = -self.keyboard_angular_z_radps
+        return twist
+
+    def _publish_keyboard_command(self):
+        if not self.keyboard_drive_enabled:
+            return
+        self.keyboard_cmd_pub.publish(self._make_keyboard_twist())
+        self._publish_keyboard_enabled()
+
+    def _send_ok(self, source):
+        now_s = time.time()
+        self.ok_overlay_until_s = now_s + self.ok_overlay_duration_s
+        payload = {
+            'stamp_sec': self.get_clock().now().nanoseconds / 1e9,
+            'event': 'ok',
+            'mission_id': self.active_mission,
+            'source': str(source),
+            'duration_s': self.ok_overlay_duration_s,
+        }
+        msg = String()
+        msg.data = json.dumps(payload, sort_keys=True)
+        self.operator_ok_pub.publish(msg)
+        self._publish_state()
+
+    def _update_drive_status(self):
+        label = self.gui_widgets.get('drive_status')
+        if label is None:
+            return
+        if not self.keyboard_drive_enabled:
+            label.configure(text='Drive: disabled')
+            return
+        twist = self._make_keyboard_twist()
+        label.configure(
+            text=(
+                'Drive: enabled  '
+                f'x={twist.linear.x:+.2f} y={twist.linear.y:+.2f} '
+                f'wz={twist.angular.z:+.2f}'
+            )
+        )
 
     def _publish_layout_command(self, command):
         command = str(command or '').strip().lower()
@@ -584,6 +871,10 @@ class MissionModeManager(Node):
                     relief='raised',
                     activebackground='#555a62',
                 )
+        keyboard_enabled_var = self.gui_widgets.get('keyboard_enabled_var')
+        if keyboard_enabled_var is not None:
+            keyboard_enabled_var.set(bool(self.keyboard_drive_enabled))
+        self._update_drive_status()
 
     def _schedule_ros_spin(self):
         if self.root is None:

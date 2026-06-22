@@ -13,3 +13,7 @@ windows:
     enabled: true
     title_patterns:
       - "Teleop Image Viewer"
+  - name: operator_drive_panel
+    enabled: true
+    title_patterns:
+      - "Teleop Drive Control"
