@@ -7,6 +7,7 @@ Runs the RViz operator view and the LG2 leader controller on the main PC.
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import LogInfo
+from launch.actions import OpaqueFunction
 from launch.actions import TimerAction
 from launch.conditions import IfCondition
 from launch.substitutions import Command
@@ -16,6 +17,36 @@ from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+
+
+def make_rviz_node(context, *args, **kwargs):
+    del args, kwargs
+    rviz_config = LaunchConfiguration('rviz_config').perform(context)
+    rviz_gl_mode = LaunchConfiguration('rviz_gl_mode').perform(context).strip().lower()
+    env = {
+        'QT_QPA_PLATFORM': 'xcb',
+        'QT_X11_NO_MITSHM': '1',
+        'LIBGL_DRI3_DISABLE': '1',
+    }
+    if rviz_gl_mode in ('software', 'llvmpipe', 'mesa'):
+        env.update({
+            'LIBGL_ALWAYS_SOFTWARE': '1',
+            'QT_OPENGL': 'software',
+            'GALLIUM_DRIVER': 'llvmpipe',
+            'MESA_LOADER_DRIVER_OVERRIDE': 'llvmpipe',
+            'MESA_GL_VERSION_OVERRIDE': '3.3',
+        })
+
+    return [Node(
+        package='rviz2',
+        executable='rviz2',
+        name='teleop_operator_rviz',
+        arguments=['-d', rviz_config],
+        output='screen',
+        emulate_tty=True,
+        additional_env=env,
+        condition=IfCondition(LaunchConfiguration('start_rviz')),
+    )]
 
 
 def generate_launch_description():
@@ -40,7 +71,6 @@ def generate_launch_description():
         'operator_image_viewer_follow_window_size')
     operator_image_viewer_show_toolbar = LaunchConfiguration(
         'operator_image_viewer_show_toolbar')
-    rviz_config = LaunchConfiguration('rviz_config')
     mission_profiles_config = LaunchConfiguration('mission_profiles_config')
     operator_screen_layout_config = LaunchConfiguration('operator_screen_layout_config')
     operator_layout_action = LaunchConfiguration('operator_layout_action')
@@ -124,21 +154,6 @@ def generate_launch_description():
         condition=IfCondition(start_leader),
     )
 
-    rviz = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='teleop_operator_rviz',
-        arguments=['-d', rviz_config],
-        output='screen',
-        emulate_tty=True,
-        additional_env={
-            'LIBGL_ALWAYS_SOFTWARE': '1',
-            'QT_OPENGL': 'software',
-            'QT_X11_NO_MITSHM': '1',
-        },
-        condition=IfCondition(start_rviz),
-    )
-
     mission_control = Node(
         package='ffw_teleop',
         executable='mission_mode_manager',
@@ -199,6 +214,7 @@ def generate_launch_description():
         DeclareLaunchArgument('leader_right_port', default_value='/dev/right_leader'),
         DeclareLaunchArgument('start_leader', default_value='true'),
         DeclareLaunchArgument('start_rviz', default_value='true'),
+        DeclareLaunchArgument('rviz_gl_mode', default_value='native'),
         DeclareLaunchArgument('start_mission_control', default_value='true'),
         DeclareLaunchArgument('start_operator_image_viewer', default_value='true'),
         DeclareLaunchArgument(
@@ -246,7 +262,7 @@ def generate_launch_description():
         leader_robot_state_publisher,
         leader_control,
         leader_spawner,
-        rviz,
+        OpaqueFunction(function=make_rviz_node),
         TimerAction(period=1.5, actions=[mission_control]),
         TimerAction(period=2.5, actions=[operator_image_viewer]),
         TimerAction(period=4.0, actions=[operator_layout]),

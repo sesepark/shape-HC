@@ -3,6 +3,8 @@ import os
 import shutil
 import subprocess
 import time
+import ctypes
+import ctypes.util
 
 import rclpy
 from rclpy.node import Node
@@ -26,6 +28,336 @@ DEFAULT_TARGETS = [
         'title_patterns': ['Teleop Image Viewer'],
     },
 ]
+
+
+class WmctrlWindowBackend:
+
+    name = 'wmctrl'
+
+    def __init__(self, path, logger):
+        self.path = path
+        self.logger = logger
+
+    def list_windows(self):
+        proc = subprocess.run(
+            [self.path, '-lG'],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if proc.returncode != 0:
+            self.logger.warn(proc.stderr.strip() or 'wmctrl -lG failed')
+            return []
+        windows = []
+        for line in proc.stdout.splitlines():
+            parts = line.split(None, 7)
+            if len(parts) < 8:
+                continue
+            try:
+                geometry = {
+                    'x': int(parts[2]),
+                    'y': int(parts[3]),
+                    'width': int(parts[4]),
+                    'height': int(parts[5]),
+                }
+            except ValueError:
+                continue
+            windows.append({
+                'id': parts[0],
+                'desktop': parts[1],
+                'host': parts[6],
+                'title': parts[7],
+                **geometry,
+            })
+        return windows
+
+    def apply_geometry(self, match, geometry, dry_run=False):
+        x, y, width, height = geometry
+        self.logger.info(
+            f'restore window -> {x},{y} {width}x{height} ({match["title"]})')
+        if dry_run:
+            return True
+        subprocess.run(
+            [self.path, '-ir', match['id'], '-b', 'remove,maximized_vert,maximized_horz'],
+            check=False,
+        )
+        subprocess.run(
+            [self.path, '-ir', match['id'], '-e', f'0,{x},{y},{width},{height}'],
+            check=False,
+        )
+        return True
+
+    def desktop_geometry(self):
+        proc = subprocess.run(
+            [self.path, '-d'],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if proc.returncode != 0:
+            return None
+        for line in proc.stdout.splitlines():
+            if '*' not in line:
+                continue
+            parts = line.split()
+            for index, part in enumerate(parts):
+                if part == 'WA:' and index + 2 < len(parts):
+                    xy = parse_pair(parts[index + 1], ',')
+                    size = parse_pair(parts[index + 2], 'x')
+                    if xy and size:
+                        return xy[0], xy[1], size[0], size[1]
+                if part == 'DG:' and index + 1 < len(parts):
+                    size = parse_pair(parts[index + 1], 'x')
+                    if size:
+                        return 0, 0, size[0], size[1]
+        return None
+
+
+class X11WindowBackend:
+
+    name = 'libX11'
+
+    def __init__(self, logger):
+        self.logger = logger
+        library_path = ctypes.util.find_library('X11')
+        if not library_path:
+            for candidate in (
+                'libX11.so.6',
+                '/usr/lib/x86_64-linux-gnu/libX11.so.6',
+                '/usr/lib/aarch64-linux-gnu/libX11.so.6',
+                '/opt/X11/lib/libX11.dylib',
+            ):
+                if os.path.exists(candidate):
+                    library_path = candidate
+                    break
+        if not library_path:
+            raise RuntimeError('libX11 runtime library was not found')
+        self.x11 = ctypes.CDLL(library_path)
+        self._configure_signatures()
+        self.display = self.x11.XOpenDisplay(None)
+        if not self.display:
+            raise RuntimeError('XOpenDisplay failed; DISPLAY may be unset or inaccessible')
+        self.root = self.x11.XDefaultRootWindow(self.display)
+        self._atoms = {}
+
+    def _configure_signatures(self):
+        self.x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        self.x11.XOpenDisplay.restype = ctypes.c_void_p
+        self.x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        self.x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        self.x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+        self.x11.XInternAtom.restype = ctypes.c_ulong
+        self.x11.XGetWindowProperty.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_long,
+            ctypes.c_long,
+            ctypes.c_int,
+            ctypes.c_ulong,
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_ubyte)),
+        ]
+        self.x11.XGetWindowProperty.restype = ctypes.c_int
+        self.x11.XFree.argtypes = [ctypes.c_void_p]
+        self.x11.XFree.restype = ctypes.c_int
+        self.x11.XFetchName.argtypes = [
+            ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_char_p)]
+        self.x11.XFetchName.restype = ctypes.c_int
+        self.x11.XGetGeometry.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_uint),
+            ctypes.POINTER(ctypes.c_uint),
+            ctypes.POINTER(ctypes.c_uint),
+            ctypes.POINTER(ctypes.c_uint),
+        ]
+        self.x11.XGetGeometry.restype = ctypes.c_int
+        self.x11.XTranslateCoordinates.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_ulong),
+        ]
+        self.x11.XTranslateCoordinates.restype = ctypes.c_int
+        self.x11.XMoveResizeWindow.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint,
+            ctypes.c_uint,
+        ]
+        self.x11.XMoveResizeWindow.restype = ctypes.c_int
+        self.x11.XRaiseWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        self.x11.XRaiseWindow.restype = ctypes.c_int
+        self.x11.XFlush.argtypes = [ctypes.c_void_p]
+        self.x11.XFlush.restype = ctypes.c_int
+
+    def _atom(self, name):
+        if name not in self._atoms:
+            self._atoms[name] = self.x11.XInternAtom(
+                self.display, name.encode('utf-8'), False)
+        return self._atoms[name]
+
+    def _property(self, window_id, atom_name, long_length=8192):
+        actual_type = ctypes.c_ulong()
+        actual_format = ctypes.c_int()
+        nitems = ctypes.c_ulong()
+        bytes_after = ctypes.c_ulong()
+        prop = ctypes.POINTER(ctypes.c_ubyte)()
+        status = self.x11.XGetWindowProperty(
+            self.display,
+            ctypes.c_ulong(window_id),
+            self._atom(atom_name),
+            0,
+            long_length,
+            False,
+            0,
+            ctypes.byref(actual_type),
+            ctypes.byref(actual_format),
+            ctypes.byref(nitems),
+            ctypes.byref(bytes_after),
+            ctypes.byref(prop),
+        )
+        if status != 0 or not prop:
+            return None, 0, 0
+        try:
+            if actual_format.value == 8:
+                data = ctypes.string_at(prop, nitems.value)
+            elif actual_format.value == 32:
+                array = ctypes.cast(prop, ctypes.POINTER(ctypes.c_ulong))
+                data = [int(array[index]) for index in range(nitems.value)]
+            else:
+                data = None
+            return data, actual_format.value, int(nitems.value)
+        finally:
+            self.x11.XFree(prop)
+
+    def _client_windows(self):
+        for atom_name in ('_NET_CLIENT_LIST', '_NET_CLIENT_LIST_STACKING'):
+            data, actual_format, _ = self._property(self.root, atom_name)
+            if actual_format == 32 and data:
+                return data
+        return []
+
+    def _window_title(self, window_id):
+        for atom_name in ('_NET_WM_NAME', 'WM_NAME'):
+            data, actual_format, _ = self._property(window_id, atom_name)
+            if actual_format == 8 and data:
+                title = data.split(b'\x00', 1)[0].decode('utf-8', errors='replace').strip()
+                if title:
+                    return title
+        name = ctypes.c_char_p()
+        if self.x11.XFetchName(self.display, ctypes.c_ulong(window_id), ctypes.byref(name)):
+            if name.value:
+                try:
+                    return name.value.decode('utf-8', errors='replace').strip()
+                finally:
+                    self.x11.XFree(name)
+        return ''
+
+    def _window_geometry(self, window_id):
+        root_return = ctypes.c_ulong()
+        x = ctypes.c_int()
+        y = ctypes.c_int()
+        width = ctypes.c_uint()
+        height = ctypes.c_uint()
+        border = ctypes.c_uint()
+        depth = ctypes.c_uint()
+        ok = self.x11.XGetGeometry(
+            self.display,
+            ctypes.c_ulong(window_id),
+            ctypes.byref(root_return),
+            ctypes.byref(x),
+            ctypes.byref(y),
+            ctypes.byref(width),
+            ctypes.byref(height),
+            ctypes.byref(border),
+            ctypes.byref(depth),
+        )
+        if not ok:
+            return None
+        abs_x = ctypes.c_int()
+        abs_y = ctypes.c_int()
+        child = ctypes.c_ulong()
+        translated = self.x11.XTranslateCoordinates(
+            self.display,
+            ctypes.c_ulong(window_id),
+            self.root,
+            0,
+            0,
+            ctypes.byref(abs_x),
+            ctypes.byref(abs_y),
+            ctypes.byref(child),
+        )
+        return {
+            'x': int(abs_x.value if translated else x.value),
+            'y': int(abs_y.value if translated else y.value),
+            'width': int(width.value),
+            'height': int(height.value),
+        }
+
+    def list_windows(self):
+        host = os.uname().nodename if hasattr(os, 'uname') else ''
+        windows = []
+        for window_id in self._client_windows():
+            geometry = self._window_geometry(window_id)
+            if geometry is None:
+                continue
+            title = self._window_title(window_id)
+            windows.append({
+                'id': hex(int(window_id)),
+                '_window_id': int(window_id),
+                'desktop': '',
+                'host': host,
+                'title': title,
+                **geometry,
+            })
+        return windows
+
+    def apply_geometry(self, match, geometry, dry_run=False):
+        window_id = int(match.get('_window_id') or int(str(match['id']), 16))
+        x, y, width, height = geometry
+        self.logger.info(
+            f'restore window via libX11 -> {x},{y} {width}x{height} ({match["title"]})')
+        if dry_run:
+            return True
+        self.x11.XMoveResizeWindow(
+            self.display,
+            ctypes.c_ulong(window_id),
+            int(x),
+            int(y),
+            int(width),
+            int(height),
+        )
+        self.x11.XRaiseWindow(self.display, ctypes.c_ulong(window_id))
+        self.x11.XFlush(self.display)
+        return True
+
+    def desktop_geometry(self):
+        geometry = self._window_geometry(self.root)
+        if geometry is None:
+            return None
+        return 0, 0, geometry['width'], geometry['height']
+
+
+def parse_pair(value, separator):
+    try:
+        left, right = str(value).split(separator, 1)
+        return int(left), int(right)
+    except (TypeError, ValueError):
+        return None
 
 
 class OperatorLayoutManager(Node):
@@ -62,6 +394,7 @@ class OperatorLayoutManager(Node):
         if self.status_topic:
             self.status_pub = self.create_publisher(String, self.status_topic, 10)
         self.command_sub = None
+        self.backend = None
 
     def run(self):
         if self.action == 'server':
@@ -70,23 +403,23 @@ class OperatorLayoutManager(Node):
         if self.action == 'reset':
             self._reset_saved_layout()
             return
-        wmctrl = self._resolve_wmctrl()
-        if wmctrl is None:
-            message = 'wmctrl is not available; install it to save/restore operator layout'
+        backend = self._resolve_backend()
+        if backend is None:
+            message = self._backend_unavailable_message()
             self.get_logger().warn(message)
             self._publish_status('error', message, self.action)
             return
 
         if self.action == 'diagnostic':
-            self._print_diagnostics(wmctrl)
+            self._print_diagnostics(backend)
             return
         if self.action == 'save':
-            self._save_current_layout(wmctrl)
+            self._save_current_layout(backend)
             return
         if self.action != 'restore':
             self.get_logger().warn(f'unknown layout action={self.action}; using restore')
 
-        self._restore_saved_layout(wmctrl)
+        self._restore_saved_layout(backend)
 
     def _run_server(self):
         if self.command_topic:
@@ -95,14 +428,19 @@ class OperatorLayoutManager(Node):
         self.get_logger().info(
             f'operator layout manager server active: command={self.command_topic}, '
             f'status={self.status_topic}')
-        wmctrl = self._resolve_wmctrl()
-        if wmctrl is None:
-            message = 'wmctrl is not available; layout save/restore commands disabled'
+        backend = self._resolve_backend()
+        if backend is None:
+            message = self._backend_unavailable_message()
             self.get_logger().warn(message)
             self._publish_status('error', message, 'server')
         else:
-            self._restore_saved_layout(wmctrl)
-            self._publish_status('ready', 'operator layout manager ready', 'server')
+            self.get_logger().info(f'operator layout backend: {backend.name}')
+            self._restore_saved_layout(backend)
+            self._publish_status(
+                'ready',
+                f'operator layout manager ready ({backend.name})',
+                'server',
+            )
         rclpy.spin(self)
 
     def _command_callback(self, msg):
@@ -125,18 +463,18 @@ class OperatorLayoutManager(Node):
         self._publish_status('error', message, action)
 
     def _run_layout_action(self, action):
-        wmctrl = self._resolve_wmctrl()
-        if wmctrl is None:
-            message = 'wmctrl is not available; install it to save/restore operator layout'
+        backend = self._resolve_backend()
+        if backend is None:
+            message = self._backend_unavailable_message()
             self.get_logger().warn(message)
             self._publish_status('error', message, action)
             return
         if action == 'save':
-            self._save_current_layout(wmctrl)
+            self._save_current_layout(backend)
         elif action == 'restore':
-            self._restore_saved_layout(wmctrl)
+            self._restore_saved_layout(backend)
         elif action == 'diagnostic':
-            self._print_diagnostics(wmctrl)
+            self._print_diagnostics(backend)
 
     def _as_bool(self, value):
         if isinstance(value, bool):
@@ -149,6 +487,26 @@ class OperatorLayoutManager(Node):
         if os.path.isabs(self.wmctrl_path) and os.path.exists(self.wmctrl_path):
             return self.wmctrl_path
         return shutil.which(self.wmctrl_path)
+
+    def _resolve_backend(self):
+        if self.backend is not None:
+            return self.backend
+        wmctrl = self._resolve_wmctrl()
+        if wmctrl is not None:
+            self.backend = WmctrlWindowBackend(wmctrl, self.get_logger())
+            return self.backend
+        try:
+            self.backend = X11WindowBackend(self.get_logger())
+            return self.backend
+        except Exception as exc:
+            self.get_logger().debug(f'libX11 layout backend unavailable: {exc}')
+            return None
+
+    def _backend_unavailable_message(self):
+        return (
+            'no X11 window layout backend is available; install wmctrl or make '
+            'libX11 available in the environment'
+        )
 
     def _publish_status(self, status, message, action='', details=None):
         if self.status_pub is None:
@@ -187,38 +545,8 @@ class OperatorLayoutManager(Node):
     def _enabled(self, window):
         return self._as_bool(window.get('enabled', True))
 
-    def _list_windows(self, wmctrl):
-        proc = subprocess.run(
-            [wmctrl, '-lG'],
-            check=False,
-            text=True,
-            capture_output=True,
-        )
-        if proc.returncode != 0:
-            self.get_logger().warn(proc.stderr.strip() or 'wmctrl -lG failed')
-            return []
-        windows = []
-        for line in proc.stdout.splitlines():
-            parts = line.split(None, 7)
-            if len(parts) < 8:
-                continue
-            try:
-                geometry = {
-                    'x': int(parts[2]),
-                    'y': int(parts[3]),
-                    'width': int(parts[4]),
-                    'height': int(parts[5]),
-                }
-            except ValueError:
-                continue
-            windows.append({
-                'id': parts[0],
-                'desktop': parts[1],
-                'host': parts[6],
-                'title': parts[7],
-                **geometry,
-            })
-        return windows
+    def _list_windows(self, backend):
+        return backend.list_windows()
 
     def _find_window(self, target, windows):
         for pattern in self._target_patterns(target):
@@ -237,8 +565,8 @@ class OperatorLayoutManager(Node):
             patterns.insert(0, title)
         return patterns
 
-    def _save_current_layout(self, wmctrl):
-        windows = self._list_windows(wmctrl)
+    def _save_current_layout(self, backend):
+        windows = self._list_windows(backend)
         saved_windows = []
         missing_windows = []
         for target in self.targets:
@@ -270,6 +598,7 @@ class OperatorLayoutManager(Node):
         payload = {
             'version': 1,
             'saved_at_sec': time.time(),
+            'backend': backend.name,
             'windows': saved_windows,
         }
         if self.dry_run:
@@ -299,7 +628,7 @@ class OperatorLayoutManager(Node):
             },
         )
 
-    def _restore_saved_layout(self, wmctrl):
+    def _restore_saved_layout(self, backend):
         if not os.path.exists(self.layout_store_path):
             message = f'no saved operator layout at {self.layout_store_path}; skipping restore'
             self.get_logger().info(message)
@@ -333,14 +662,14 @@ class OperatorLayoutManager(Node):
         for _ in range(self.retry_count):
             if not pending:
                 break
-            current = self._list_windows(wmctrl)
+            current = self._list_windows(backend)
             next_pending = []
             for window in pending:
                 match = self._find_window(window, current)
                 if match is None:
                     next_pending.append(window)
                     continue
-                if self._apply_geometry(wmctrl, match, window):
+                if self._apply_geometry(backend, match, window):
                     restored_count += 1
             pending = next_pending
             if pending:
@@ -368,27 +697,18 @@ class OperatorLayoutManager(Node):
                 {'path': self.layout_store_path},
             )
 
-    def _apply_geometry(self, wmctrl, match, target):
-        geometry = self._safe_geometry(wmctrl, target)
+    def _apply_geometry(self, backend, match, target):
+        geometry = self._safe_geometry(backend, target)
         if geometry is None:
             self.get_logger().warn(
                 f'skipping invalid saved geometry for {target.get("name", "window")}')
             return False
-        x, y, width, height = geometry
-        command_remove_max = [
-            wmctrl, '-ir', match['id'], '-b', 'remove,maximized_vert,maximized_horz']
-        command_geometry = [
-            wmctrl, '-ir', match['id'], '-e', f'0,{x},{y},{width},{height}']
         self.get_logger().info(
             f'restore {target.get("name", "window")} -> '
-            f'{x},{y} {width}x{height} ({match["title"]})')
-        if self.dry_run:
-            return True
-        subprocess.run(command_remove_max, check=False)
-        subprocess.run(command_geometry, check=False)
-        return True
+            f'{geometry[0]},{geometry[1]} {geometry[2]}x{geometry[3]} ({match["title"]})')
+        return backend.apply_geometry(match, geometry, self.dry_run)
 
-    def _safe_geometry(self, wmctrl, target):
+    def _safe_geometry(self, backend, target):
         try:
             x = int(target.get('x', 0))
             y = int(target.get('y', 0))
@@ -399,7 +719,7 @@ class OperatorLayoutManager(Node):
 
         width = max(width, 240)
         height = max(height, 180)
-        desktop = self._desktop_geometry(wmctrl)
+        desktop = backend.desktop_geometry()
         if desktop is None:
             return x, y, width, height
 
@@ -414,43 +734,12 @@ class OperatorLayoutManager(Node):
         y = min(max(y, desk_y), y_max)
         return x, y, width, height
 
-    def _desktop_geometry(self, wmctrl):
-        proc = subprocess.run(
-            [wmctrl, '-d'],
-            check=False,
-            text=True,
-            capture_output=True,
-        )
-        if proc.returncode != 0:
-            return None
-        for line in proc.stdout.splitlines():
-            if '*' not in line:
-                continue
-            parts = line.split()
-            for index, part in enumerate(parts):
-                if part == 'WA:' and index + 2 < len(parts):
-                    xy = self._parse_pair(parts[index + 1], ',')
-                    size = self._parse_pair(parts[index + 2], 'x')
-                    if xy and size:
-                        return xy[0], xy[1], size[0], size[1]
-                if part == 'DG:' and index + 1 < len(parts):
-                    size = self._parse_pair(parts[index + 1], 'x')
-                    if size:
-                        return 0, 0, size[0], size[1]
-        return None
-
-    def _parse_pair(self, value, separator):
-        try:
-            left, right = str(value).split(separator, 1)
-            return int(left), int(right)
-        except (TypeError, ValueError):
-            return None
-
-    def _print_diagnostics(self, wmctrl):
-        windows = self._list_windows(wmctrl)
+    def _print_diagnostics(self, backend):
+        windows = self._list_windows(backend)
         if not windows:
-            self.get_logger().info('no X11 windows reported by wmctrl')
-            self._publish_status('idle', 'no X11 windows reported by wmctrl', 'diagnostic')
+            message = f'no X11 windows reported by {backend.name}'
+            self.get_logger().info(message)
+            self._publish_status('idle', message, 'diagnostic')
             return
         for window in windows:
             self.get_logger().info(
@@ -458,7 +747,7 @@ class OperatorLayoutManager(Node):
                 f'w={window["width"]} h={window["height"]} title={window["title"]}')
         self._publish_status(
             'ok',
-            f'reported {len(windows)} X11 windows',
+            f'reported {len(windows)} X11 windows via {backend.name}',
             'diagnostic',
         )
 

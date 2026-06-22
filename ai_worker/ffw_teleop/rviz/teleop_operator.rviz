@@ -46,6 +46,21 @@ Visualization Manager:
       Name: SG2 Robot
       Value: true
       Visual Enabled: true
+    - Alpha: 0.7
+      Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Draw Behind: false
+      Enabled: true
+      Name: Map
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+      Update Topic: true
+      Use Timestamp: false
+      Value: true
     - Alpha: 1
       Class: rviz_default_plugins/Odometry
       Color: 255; 25; 0
@@ -76,131 +91,11 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /scan
       Value: true
-    - Class: rviz_default_plugins/Image
-      Enabled: false
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Operator Status
-      Normalize Range: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /teleop/operator_status
-      Transport Hint: compressed
-      Value: false
-    - Class: rviz_default_plugins/Image
-      Enabled: false
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Mission Panel
-      Normalize Range: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /teleop/mission_panel
-      Transport Hint: compressed
-      Value: false
-    - Class: rviz_default_plugins/Image
-      Enabled: false
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Bandwidth Monitor
-      Normalize Range: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /teleop/bandwidth_monitor
-      Transport Hint: compressed
-      Value: false
-    - Class: rviz_default_plugins/Image
-      Enabled: false
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Head ZED Depth Assist
-      Normalize Range: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /teleop/zed/depth_assist
-      Transport Hint: compressed
-      Value: false
-    - Class: rviz_default_plugins/Image
-      Enabled: false
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Left Wrist Depth Assist
-      Normalize Range: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /teleop/wrist_left/depth_assist
-      Transport Hint: compressed
-      Value: false
-    - Class: rviz_default_plugins/Image
-      Enabled: false
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Left Wrist Overlay Debug
-      Normalize Range: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /teleop/wrist_left/depth_overlay
-      Transport Hint: compressed
-      Value: false
-    - Class: rviz_default_plugins/Image
-      Enabled: false
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Right Wrist Depth Assist
-      Normalize Range: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /teleop/wrist_right/depth_assist
-      Transport Hint: compressed
-      Value: false
-    - Class: rviz_default_plugins/Image
-      Enabled: false
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Right Wrist Overlay Debug
-      Normalize Range: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /teleop/wrist_right/depth_overlay
-      Transport Hint: compressed
-      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
     Fixed Frame: odom
-    Frame Rate: 30
+    Frame Rate: 20
   Name: root
   Tools:
     - Class: rviz_default_plugins/Interact

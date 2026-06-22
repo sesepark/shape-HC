@@ -456,6 +456,12 @@ class OperatorImageViewer(Node):
         self._scale_layout_to_canvas(old_width, old_height)
 
     def _current_window_geometry(self):
+        geometry = self._current_window_geometry_wmctrl()
+        if geometry:
+            return geometry
+        return self._current_window_geometry_xwininfo()
+
+    def _current_window_geometry_wmctrl(self):
         try:
             result = subprocess.run(
                 ['wmctrl', '-lG'],
@@ -485,6 +491,35 @@ class OperatorImageViewer(Node):
             except ValueError:
                 continue
         return None
+
+    def _current_window_geometry_xwininfo(self):
+        try:
+            result = subprocess.run(
+                ['xwininfo', '-name', self.window_title],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=0.5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        fields = {}
+        for line in (result.stdout or '').splitlines():
+            if ':' not in line:
+                continue
+            key, value = line.split(':', 1)
+            fields[key.strip()] = value.strip()
+        try:
+            return (
+                int(fields['Absolute upper-left X']),
+                int(fields['Absolute upper-left Y']),
+                int(fields['Width']),
+                int(fields['Height']),
+            )
+        except (KeyError, ValueError):
+            return None
 
     def _scale_layout_to_canvas(self, old_width, old_height):
         if old_width <= 0 or old_height <= 0:
