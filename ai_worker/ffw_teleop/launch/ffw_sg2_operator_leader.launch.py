@@ -106,9 +106,8 @@ def generate_launch_description():
     ])
     joystick_cmd_vel_override = ParameterFile(
         PathJoinSubstitution([
-            FindPackageShare('ffw_bringup'),
+            FindPackageShare('ffw_teleop'),
             'config',
-            'ffw_lg2_leader',
             'ffw_lg2_leader_cmd_vel_override.yaml',
         ]),
         allow_substs=True,
