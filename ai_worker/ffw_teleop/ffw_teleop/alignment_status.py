@@ -57,7 +57,9 @@ class AlignmentStatus(Node):
         self.declare_parameter('table_y_m', 0.0)
         self.declare_parameter('table_yaw_deg', 0.0)
         self.declare_parameter('status_panel_topic', '/teleop/operator_status/compressed')
-        self.declare_parameter('status_panel_jpeg_quality', 85)
+        self.declare_parameter('status_panel_width', 640)
+        self.declare_parameter('status_panel_height', 360)
+        self.declare_parameter('status_panel_jpeg_quality', 90)
 
         self.pos_threshold_m = float(self.get_parameter('pos_threshold_m').value)
         self.ori_threshold_deg = float(self.get_parameter('ori_threshold_deg').value)
@@ -73,6 +75,8 @@ class AlignmentStatus(Node):
         self.table_y_m = float(self.get_parameter('table_y_m').value)
         self.table_yaw_rad = math.radians(float(self.get_parameter('table_yaw_deg').value))
         self.status_panel_topic = str(self.get_parameter('status_panel_topic').value).strip()
+        self.status_panel_width = max(int(self.get_parameter('status_panel_width').value), 320)
+        self.status_panel_height = max(int(self.get_parameter('status_panel_height').value), 180)
         self.status_panel_jpeg_quality = int(min(
             max(int(self.get_parameter('status_panel_jpeg_quality').value), 1), 100))
 
@@ -295,8 +299,8 @@ class AlignmentStatus(Node):
         ):
             return
 
-        width = 660
-        height = 252
+        width = self.status_panel_width
+        height = self.status_panel_height
         image = np.full((height, width, 3), (34, 36, 40), dtype=np.uint8)
         mode = str(payload.get('mode') or 'unknown').strip()
         mode_key = mode.lower()

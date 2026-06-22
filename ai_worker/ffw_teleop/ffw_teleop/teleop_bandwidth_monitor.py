@@ -28,9 +28,9 @@ class TeleopBandwidthMonitor(Node):
         self.declare_parameter('window_s', 3.0)
         self.declare_parameter('stale_timeout_s', 1.5)
         self.declare_parameter('publish_hz', 2.0)
-        self.declare_parameter('panel_width', 760)
-        self.declare_parameter('panel_height', 300)
-        self.declare_parameter('panel_jpeg_quality', 86)
+        self.declare_parameter('panel_width', 640)
+        self.declare_parameter('panel_height', 360)
+        self.declare_parameter('panel_jpeg_quality', 90)
         self.declare_parameter('network_interface', '')
         self.declare_parameter('network_tx_enabled', True)
 
@@ -196,8 +196,8 @@ class TeleopBandwidthMonitor(Node):
         self._put_text(
             image,
             f'{total_mbps:5.1f} / {self.available_mbps:.0f} Mbps  {usage:4.0f}%',
-            (390, 38),
-            0.66,
+            (330, 38),
+            0.58,
             (255, 255, 255),
             2,
         )
@@ -213,7 +213,7 @@ class TeleopBandwidthMonitor(Node):
         )
         net_tx = payload.get('net_tx_mbps')
         net_text = 'NET TX --' if net_tx is None else f'NET TX {float(net_tx):5.1f} Mbps'
-        self._put_text(image, net_text, (420, 116), 0.52, (226, 232, 238), 1)
+        self._put_text(image, net_text, (340, 116), 0.52, (226, 232, 238), 1)
 
         streams = payload.get('streams') or {}
         y = 154
@@ -256,19 +256,20 @@ class TeleopBandwidthMonitor(Node):
             quality = stream.get('jpeg_quality')
             res = f'{width}x{height}' if width and height else '--'
             q_text = f'Q{int(quality)}' if quality is not None else 'Q--'
-            text = f'{label:<8} {fps:4.1f} fps   {mbps:5.1f} Mbps   {res:<9} {q_text}'
+            text = f'{label:<7} {fps:4.1f}Hz  {mbps:5.1f}M  {res:<9} {q_text}'
             bar_color = self._usage_color(usage)
         else:
-            text = f'{label:<8} -- fps     -- Mbps     STALE'
+            text = f'{label:<7} -- Hz    -- M     STALE'
             usage = 0.0
             bar_color = (86, 90, 98)
-        self._put_text(image, text, (18, y), 0.50, color, 1)
-        x = self.panel_width - 170
-        cv2.rectangle(image, (x, y - 15), (x + 138, y - 4), (58, 61, 68), -1)
-        fill_width = int(138 * min(max(usage, 0.0), 100.0) / 100.0)
+        self._put_text(image, text, (18, y), 0.46, color, 1)
+        bar_width = 104
+        x = self.panel_width - bar_width - 18
+        cv2.rectangle(image, (x, y - 15), (x + bar_width, y - 4), (58, 61, 68), -1)
+        fill_width = int(bar_width * min(max(usage, 0.0), 100.0) / 100.0)
         if fill_width > 0:
             cv2.rectangle(image, (x, y - 15), (x + fill_width, y - 4), bar_color, -1)
-        cv2.rectangle(image, (x, y - 15), (x + 138, y - 4), (130, 138, 148), 1)
+        cv2.rectangle(image, (x, y - 15), (x + bar_width, y - 4), (130, 138, 148), 1)
 
     def _usage_color(self, usage_percent):
         if usage_percent >= 90.0:

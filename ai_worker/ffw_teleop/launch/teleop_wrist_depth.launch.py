@@ -352,8 +352,8 @@ def generate_launch_description():
             'zed_metrics_topic', default_value='/teleop/zed/depth_metrics'),
         DeclareLaunchArgument(
             'stream_stats_topic', default_value='/teleop/stream_stats'),
-        DeclareLaunchArgument('zed_assist_fps', default_value='10.0'),
-        DeclareLaunchArgument('zed_assist_jpeg_quality', default_value='75'),
+        DeclareLaunchArgument('zed_assist_fps', default_value='30.0'),
+        DeclareLaunchArgument('zed_assist_jpeg_quality', default_value='88'),
         DeclareLaunchArgument('zed_min_depth_m', default_value='0.15'),
         DeclareLaunchArgument('zed_max_depth_m', default_value='4.0'),
         DeclareLaunchArgument('zed_base_image_timeout_s', default_value='0.5'),
@@ -370,16 +370,16 @@ def generate_launch_description():
         DeclareLaunchArgument('zed_component_min_area_px', default_value='80.0'),
         DeclareLaunchArgument(
             'left_depth_profile',
-            default_value=profile_value('480,270,15', '480,270,30', '480,270,15', '480,270,30')),
+            default_value=profile_value('480,270,15', '640,480,30', '480,270,15', '640,480,30')),
         DeclareLaunchArgument(
             'right_depth_profile',
-            default_value=profile_value('480,270,15', '480,270,30', '640,480,15', '480,270,30')),
+            default_value=profile_value('480,270,15', '640,480,30', '640,480,30', '640,480,30')),
         DeclareLaunchArgument(
             'left_color_profile',
-            default_value=profile_value('424,240,15', '424,240,15', '424,240,15', '424,240,30')),
+            default_value=profile_value('424,240,15', '640,480,30', '424,240,15', '640,480,30')),
         DeclareLaunchArgument(
             'right_color_profile',
-            default_value=profile_value('424,240,15', '424,240,15', '424,240,15', '424,240,30')),
+            default_value=profile_value('424,240,15', '640,480,30', '640,480,30', '640,480,30')),
         DeclareLaunchArgument(
             'enable_left_color',
             default_value=profile_value('true', 'true', 'true', 'true')),
@@ -434,14 +434,14 @@ def generate_launch_description():
         DeclareLaunchArgument('publish_metrics', default_value='true'),
         DeclareLaunchArgument(
             'overlay_fps',
-            default_value=profile_value('10.0', '15.0', '15.0', '15.0')),
+            default_value=profile_value('10.0', '30.0', '30.0', '30.0')),
         DeclareLaunchArgument('depth_scale', default_value='0.001'),
         DeclareLaunchArgument('min_depth_m', default_value='0.03'),
         DeclareLaunchArgument('max_depth_m', default_value='0.70'),
         DeclareLaunchArgument('roi_size_px', default_value='32'),
         DeclareLaunchArgument(
             'jpeg_quality',
-            default_value=profile_value('70', '75', '75', '80')),
+            default_value=profile_value('70', '88', '88', '88')),
         DeclareLaunchArgument('colormap', default_value='VIRIDIS'),
         DeclareLaunchArgument('depth_colormap', default_value=''),
         DeclareLaunchArgument('base_alpha', default_value='0.70'),
@@ -464,9 +464,9 @@ def generate_launch_description():
         DeclareLaunchArgument('left_view_flip_vertical', default_value='false'),
         DeclareLaunchArgument('right_view_flip_vertical', default_value='false'),
         DeclareLaunchArgument('left_gripper_target_offset_x_px', default_value='0'),
-        DeclareLaunchArgument('left_gripper_target_offset_y_px', default_value='36'),
+        DeclareLaunchArgument('left_gripper_target_offset_y_px', default_value='48'),
         DeclareLaunchArgument('right_gripper_target_offset_x_px', default_value='0'),
-        DeclareLaunchArgument('right_gripper_target_offset_y_px', default_value='36'),
+        DeclareLaunchArgument('right_gripper_target_offset_y_px', default_value='48'),
         DeclareLaunchArgument('band_red_max_m', default_value='0.06'),
         DeclareLaunchArgument('band_green_min_m', default_value='0.06'),
         DeclareLaunchArgument('band_green_max_m', default_value='0.10'),
@@ -505,7 +505,7 @@ def generate_launch_description():
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
         DeclareLaunchArgument(
             'status_panel_topic', default_value='/teleop/operator_status/compressed'),
-        DeclareLaunchArgument('status_panel_jpeg_quality', default_value='85'),
+        DeclareLaunchArgument('status_panel_jpeg_quality', default_value='90'),
         DeclareLaunchArgument(
             'bandwidth_monitor_topic', default_value='/teleop/bandwidth_monitor'),
         DeclareLaunchArgument(

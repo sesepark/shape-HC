@@ -78,7 +78,7 @@ class MissionModeManager(Node):
         self.declare_parameter('mission_state_topic', '/teleop/mission/state')
         self.declare_parameter('mission_panel_topic', '/teleop/mission_panel/compressed')
         self.declare_parameter('publish_hz', 2.0)
-        self.declare_parameter('panel_width', 900)
+        self.declare_parameter('panel_width', 640)
         self.declare_parameter('panel_height', 360)
         self.declare_parameter('initial_mission', '')
         self.declare_parameter('gui_enabled', True)
@@ -265,7 +265,7 @@ class MissionModeManager(Node):
         self.mission_state_pub.publish(state_msg)
 
         panel = self._render_panel(payload)
-        ok, encoded = cv2.imencode('.jpg', panel, [int(cv2.IMWRITE_JPEG_QUALITY), 86])
+        ok, encoded = cv2.imencode('.jpg', panel, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
         if ok:
             image_msg = CompressedImage()
             image_msg.header.stamp = self.get_clock().now().to_msg()
@@ -278,22 +278,24 @@ class MissionModeManager(Node):
         width = self.panel_width
         height = self.panel_height
         mission_id = str(payload.get('mission_id') or 'A')
+        title = str(payload.get('title') or '').strip()
         color = MISSION_COLORS_BGR.get(mission_id, (80, 80, 80))
         image = np.full((height, width, 3), (30, 32, 36), dtype=np.uint8)
         cv2.rectangle(image, (0, 0), (width - 1, 72), color, -1)
+        self._put_text(image, mission_id, (20, 49), 1.12, (255, 255, 255), 2)
         self._put_text(
             image,
-            f'{mission_id}  {payload.get("title", "")}',
-            (20, 46),
-            0.95,
+            title,
+            (78, 34),
+            0.58,
             (255, 255, 255),
             2,
         )
         self._put_text(
             image,
             'MISSION MODE',
-            (width - 190, 46),
-            0.55,
+            (78, 60),
+            0.42,
             (255, 255, 255),
             1,
         )

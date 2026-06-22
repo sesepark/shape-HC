@@ -28,6 +28,14 @@ def generate_launch_description():
     start_mission_control = LaunchConfiguration('start_mission_control')
     start_operator_image_viewer = LaunchConfiguration('start_operator_image_viewer')
     start_operator_layout = LaunchConfiguration('start_operator_layout')
+    operator_image_viewer_layout_store_path = LaunchConfiguration(
+        'operator_image_viewer_layout_store_path')
+    operator_image_viewer_canvas_width = LaunchConfiguration(
+        'operator_image_viewer_canvas_width')
+    operator_image_viewer_canvas_height = LaunchConfiguration(
+        'operator_image_viewer_canvas_height')
+    operator_image_viewer_show_toolbar = LaunchConfiguration(
+        'operator_image_viewer_show_toolbar')
     rviz_config = LaunchConfiguration('rviz_config')
     mission_profiles_config = LaunchConfiguration('mission_profiles_config')
     operator_screen_layout_config = LaunchConfiguration('operator_screen_layout_config')
@@ -145,9 +153,13 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'window_title': 'Teleop Image Viewer',
-            'tile_width': 480,
-            'tile_height': 270,
+            'tile_width': 640,
+            'tile_height': 360,
             'columns': 2,
+            'canvas_width': operator_image_viewer_canvas_width,
+            'canvas_height': operator_image_viewer_canvas_height,
+            'layout_store_path': operator_image_viewer_layout_store_path,
+            'show_toolbar': operator_image_viewer_show_toolbar,
             'window_x': 1520,
             'window_y': 40,
         }],
@@ -183,6 +195,12 @@ def generate_launch_description():
         DeclareLaunchArgument('start_rviz', default_value='true'),
         DeclareLaunchArgument('start_mission_control', default_value='true'),
         DeclareLaunchArgument('start_operator_image_viewer', default_value='true'),
+        DeclareLaunchArgument(
+            'operator_image_viewer_layout_store_path',
+            default_value='~/.config/ffw_teleop/operator_image_viewer_layout.json'),
+        DeclareLaunchArgument('operator_image_viewer_canvas_width', default_value='1280'),
+        DeclareLaunchArgument('operator_image_viewer_canvas_height', default_value='1080'),
+        DeclareLaunchArgument('operator_image_viewer_show_toolbar', default_value='true'),
         DeclareLaunchArgument('start_operator_layout', default_value='true'),
         DeclareLaunchArgument(
             'rviz_config',

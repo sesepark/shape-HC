@@ -31,8 +31,8 @@ class ZedDepthAssist(Node):
         self.declare_parameter('metrics_topic', '/teleop/zed/depth_metrics')
         self.declare_parameter('stream_stats_topic', '/teleop/stream_stats')
         self.declare_parameter('stream_stats_name', 'zed')
-        self.declare_parameter('publish_fps', 10.0)
-        self.declare_parameter('jpeg_quality', 75)
+        self.declare_parameter('publish_fps', 30.0)
+        self.declare_parameter('jpeg_quality', 88)
         self.declare_parameter('depth_scale', 0.001)
         self.declare_parameter('min_depth_m', 0.15)
         self.declare_parameter('max_depth_m', 4.0)
@@ -701,17 +701,6 @@ class ZedDepthAssist(Node):
             return '--'
         return f'{float(value):+.2f}'
 
-    def _compare_text(self, compare):
-        farther = compare.get('farther')
-        delta = compare.get('delta_m')
-        if farther == 'left':
-            return f'LEFT FARTHER +{self._format_depth(delta)}m'
-        if farther == 'right':
-            return f'RIGHT FARTHER +{self._format_depth(delta)}m'
-        if farther == 'tie':
-            return 'HANDS SAME DEPTH'
-        return 'HAND DEPTH --'
-
     def _is_valid_depth(self, value):
         if value is None:
             return False
@@ -720,8 +709,10 @@ class ZedDepthAssist(Node):
     def _hand_depth_header_state(self, left_depth, right_depth, compare):
         neutral = (32, 34, 36)
         same_green = (0, 150, 70)
-        far_orange = (70, 175, 255)
-        close_orange = (0, 105, 230)
+        far_light_start = (72, 176, 255)
+        far_light_end = (132, 222, 255)
+        close_dark_start = (20, 138, 245)
+        close_dark_end = (0, 82, 224)
         colors = {
             'left': neutral,
             'right': neutral,
@@ -747,6 +738,10 @@ class ZedDepthAssist(Node):
             labels['left'] = 'SAME DEPTH'
             labels['right'] = 'SAME DEPTH'
             return colors, labels
+
+        intensity = self._depth_delta_intensity(compare)
+        far_orange = self._lerp_bgr(far_light_start, far_light_end, intensity)
+        close_orange = self._lerp_bgr(close_dark_start, close_dark_end, intensity)
         if farther == 'left':
             colors['left'] = far_orange
             colors['right'] = close_orange
@@ -761,6 +756,20 @@ class ZedDepthAssist(Node):
             return colors, labels
         return colors, labels
 
+    def _depth_delta_intensity(self, compare):
+        delta = compare.get('delta_m')
+        if delta is None:
+            delta = compare.get('signed_right_minus_left_m')
+        try:
+            delta = abs(float(delta))
+        except (TypeError, ValueError):
+            return 0.0
+        return float(np.clip((delta - 0.02) / (0.25 - 0.02), 0.0, 1.0))
+
+    def _lerp_bgr(self, start, end, t):
+        t = float(np.clip(t, 0.0, 1.0))
+        return tuple(int(round(a + (b - a) * t)) for a, b in zip(start, end))
+
     def _draw_hand_depth_header(self, image, left, right, compare):
         height, width = image.shape[:2]
         header_height = min(86, height)
@@ -769,14 +778,13 @@ class ZedDepthAssist(Node):
         right_depth = right.get('hand_depth_m')
         colors, labels = self._hand_depth_header_state(left_depth, right_depth, compare)
         panels = [
-            ('left', 'LEFT', left_depth, (0, 0), (max(mid_x - 1, 0), header_height - 1)),
-            ('right', 'RIGHT', right_depth, (mid_x, 0), (width - 1, header_height - 1)),
+            ('left', 'LEFT', (0, 0), (max(mid_x - 1, 0), header_height - 1)),
+            ('right', 'RIGHT', (mid_x, 0), (width - 1, header_height - 1)),
         ]
-        for side, title, depth, top_left, bottom_right in panels:
+        for side, title, top_left, bottom_right in panels:
             cv2.rectangle(image, top_left, bottom_right, colors[side], -1)
-            depth_text = f'{self._format_depth(depth)}m' if self._is_valid_depth(depth) else '--'
             text_x = top_left[0] + 8
-            self._put_text(image, f'{title} {depth_text}', (text_x, 31), 0.58)
+            self._put_text(image, title, (text_x, 31), 0.70)
             self._put_text(image, labels[side], (text_x, 64), 0.52)
         cv2.line(image, (mid_x, 0), (mid_x, header_height - 1), (235, 235, 235), 1)
         cv2.rectangle(image, (0, 0), (width - 1, header_height - 1), (235, 235, 235), 1)

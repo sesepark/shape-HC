@@ -116,7 +116,7 @@ def generate_launch_description():
         DeclareLaunchArgument('teleop_feedback_profile', default_value='wired_360_default'),
         DeclareLaunchArgument(
             'overlay_fps',
-            default_value=profile_value('10.0', '15.0', '15.0', '15.0')),
+            default_value=profile_value('10.0', '30.0', '30.0', '30.0')),
         DeclareLaunchArgument(
             'publish_raw_overlay',
             default_value=profile_value('false', 'false', 'false', 'true')),
