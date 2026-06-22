@@ -34,6 +34,10 @@ def generate_launch_description():
         'operator_image_viewer_canvas_width')
     operator_image_viewer_canvas_height = LaunchConfiguration(
         'operator_image_viewer_canvas_height')
+    operator_image_viewer_auto_canvas_size = LaunchConfiguration(
+        'operator_image_viewer_auto_canvas_size')
+    operator_image_viewer_follow_window_size = LaunchConfiguration(
+        'operator_image_viewer_follow_window_size')
     operator_image_viewer_show_toolbar = LaunchConfiguration(
         'operator_image_viewer_show_toolbar')
     rviz_config = LaunchConfiguration('rviz_config')
@@ -158,6 +162,8 @@ def generate_launch_description():
             'columns': 2,
             'canvas_width': operator_image_viewer_canvas_width,
             'canvas_height': operator_image_viewer_canvas_height,
+            'auto_canvas_size': operator_image_viewer_auto_canvas_size,
+            'follow_window_size': operator_image_viewer_follow_window_size,
             'layout_store_path': operator_image_viewer_layout_store_path,
             'show_toolbar': operator_image_viewer_show_toolbar,
             'window_x': 1520,
@@ -198,8 +204,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'operator_image_viewer_layout_store_path',
             default_value='~/.config/ffw_teleop/operator_image_viewer_layout.json'),
-        DeclareLaunchArgument('operator_image_viewer_canvas_width', default_value='1280'),
-        DeclareLaunchArgument('operator_image_viewer_canvas_height', default_value='1080'),
+        DeclareLaunchArgument('operator_image_viewer_canvas_width', default_value='0'),
+        DeclareLaunchArgument('operator_image_viewer_canvas_height', default_value='0'),
+        DeclareLaunchArgument('operator_image_viewer_auto_canvas_size', default_value='true'),
+        DeclareLaunchArgument('operator_image_viewer_follow_window_size', default_value='true'),
         DeclareLaunchArgument('operator_image_viewer_show_toolbar', default_value='true'),
         DeclareLaunchArgument('start_operator_layout', default_value='true'),
         DeclareLaunchArgument(

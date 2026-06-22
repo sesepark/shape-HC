@@ -57,9 +57,9 @@ class AlignmentStatus(Node):
         self.declare_parameter('table_y_m', 0.0)
         self.declare_parameter('table_yaw_deg', 0.0)
         self.declare_parameter('status_panel_topic', '/teleop/operator_status/compressed')
-        self.declare_parameter('status_panel_width', 640)
-        self.declare_parameter('status_panel_height', 360)
-        self.declare_parameter('status_panel_jpeg_quality', 90)
+        self.declare_parameter('status_panel_width', 1280)
+        self.declare_parameter('status_panel_height', 720)
+        self.declare_parameter('status_panel_jpeg_quality', 95)
 
         self.pos_threshold_m = float(self.get_parameter('pos_threshold_m').value)
         self.ori_threshold_deg = float(self.get_parameter('ori_threshold_deg').value)
@@ -301,6 +301,11 @@ class AlignmentStatus(Node):
 
         width = self.status_panel_width
         height = self.status_panel_height
+        scale = min(width / 640.0, height / 360.0)
+        def p(x, y):
+            return int(round(x * scale)), int(round(y * scale))
+        def line(value):
+            return max(int(round(value * scale)), 1)
         image = np.full((height, width, 3), (34, 36, 40), dtype=np.uint8)
         mode = str(payload.get('mode') or 'unknown').strip()
         mode_key = mode.lower()
@@ -311,11 +316,13 @@ class AlignmentStatus(Node):
             mode_label = 'ZED/HEAD + LIFT'
             header_color = (67, 161, 92)
 
-        cv2.rectangle(image, (0, 0), (width, 58), header_color, -1)
+        cv2.rectangle(image, (0, 0), (width, int(round(58 * scale))), header_color, -1)
         self._put_panel_text(
-            image, f'MODE: {mode.upper()}', (16, 38), 0.86, (255, 255, 255), 2)
+            image, f'MODE: {mode.upper()}', p(16, 38),
+            0.86 * scale, (255, 255, 255), line(2))
         self._put_panel_text(
-            image, mode_label, (370, 38), 0.70, (255, 255, 255), 2)
+            image, mode_label, p(370, 38),
+            0.70 * scale, (255, 255, 255), line(2))
 
         head = payload.get('head') or {}
         head_state = 'HOLD' if mode_key == 'swerve' else 'ACTIVE'
@@ -328,7 +335,8 @@ class AlignmentStatus(Node):
             f'{self._format_joint(head.get("error_head_joint1"))},'
             f'{self._format_joint(head.get("error_head_joint2"))}'
         )
-        self._put_panel_text(image, head_text, (16, 84), 0.50, (236, 241, 245), 1)
+        self._put_panel_text(
+            image, head_text, p(16, 84), 0.50 * scale, (236, 241, 245), line(1))
 
         depth_metrics = payload.get('depth_metrics') or {}
         distances = payload.get('center_distance_m') or {}
@@ -340,22 +348,25 @@ class AlignmentStatus(Node):
         right_hint = str(right_metric.get('hint') or '--')
         self._put_panel_text(
             image, f'L TARGET DEPTH: {left_distance} {left_hint}',
-            (16, 118), 0.50, (236, 241, 245), 1)
+            p(16, 118), 0.50 * scale, (236, 241, 245), line(1))
         self._put_panel_text(
             image, f'R TARGET DEPTH: {right_distance} {right_hint}',
-            (292, 118), 0.50, (236, 241, 245), 1)
+            p(292, 118), 0.50 * scale, (236, 241, 245), line(1))
 
         left_offset = self._format_offset(left_metric)
         right_offset = self._format_offset(right_metric)
         self._put_panel_text(
-            image, f'L OFFSET: {left_offset}', (16, 152), 0.50, (236, 241, 245), 1)
+            image, f'L OFFSET: {left_offset}',
+            p(16, 152), 0.50 * scale, (236, 241, 245), line(1))
         self._put_panel_text(
-            image, f'R OFFSET: {right_offset}', (292, 152), 0.50, (236, 241, 245), 1)
+            image, f'R OFFSET: {right_offset}',
+            p(292, 152), 0.50 * scale, (236, 241, 245), line(1))
 
         left_view = self._format_view(left_metric)
         right_view = self._format_view(right_metric)
         self._put_panel_text(
-            image, f'VIEW: L {left_view}  R {right_view}', (16, 186), 0.50, (203, 211, 218), 1)
+            image, f'VIEW: L {left_view}  R {right_view}',
+            p(16, 186), 0.50 * scale, (203, 211, 218), line(1))
 
         table = payload.get('table_relative')
         if table:
@@ -365,7 +376,8 @@ class AlignmentStatus(Node):
             )
         else:
             table_text = 'TABLE: --'
-        self._put_panel_text(image, table_text, (16, 220), 0.48, (203, 211, 218), 1)
+        self._put_panel_text(
+            image, table_text, p(16, 220), 0.48 * scale, (203, 211, 218), line(1))
 
         ok, encoded = cv2.imencode(
             '.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), self.status_panel_jpeg_quality])

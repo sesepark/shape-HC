@@ -505,7 +505,7 @@ def generate_launch_description():
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
         DeclareLaunchArgument(
             'status_panel_topic', default_value='/teleop/operator_status/compressed'),
-        DeclareLaunchArgument('status_panel_jpeg_quality', default_value='90'),
+        DeclareLaunchArgument('status_panel_jpeg_quality', default_value='95'),
         DeclareLaunchArgument(
             'bandwidth_monitor_topic', default_value='/teleop/bandwidth_monitor'),
         DeclareLaunchArgument(

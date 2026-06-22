@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import subprocess
 import time
 
 import cv2
@@ -25,6 +27,10 @@ TOOLBAR_HEIGHT = 42
 RESIZE_HANDLE_PX = 18
 MIN_TILE_WIDTH = 180
 MIN_TILE_HEIGHT = 120
+MIN_CANVAS_WIDTH = 960
+MIN_CANVAS_HEIGHT = 540
+DEFAULT_AUTO_CANVAS_WIDTH = 1920
+DEFAULT_AUTO_CANVAS_HEIGHT = 1080
 
 
 class OperatorImageViewer(Node):
@@ -37,8 +43,11 @@ class OperatorImageViewer(Node):
         self.declare_parameter('tile_width', 640)
         self.declare_parameter('tile_height', 360)
         self.declare_parameter('columns', 2)
-        self.declare_parameter('canvas_width', 1280)
-        self.declare_parameter('canvas_height', 1080)
+        self.declare_parameter('canvas_width', 0)
+        self.declare_parameter('canvas_height', 0)
+        self.declare_parameter('auto_canvas_size', True)
+        self.declare_parameter('fill_grid_on_reset', True)
+        self.declare_parameter('follow_window_size', True)
         self.declare_parameter(
             'layout_store_path',
             '~/.config/ffw_teleop/operator_image_viewer_layout.json')
@@ -55,8 +64,6 @@ class OperatorImageViewer(Node):
         self.tile_width = max(int(self.get_parameter('tile_width').value), 160)
         self.tile_height = max(int(self.get_parameter('tile_height').value), 120)
         self.columns = max(int(self.get_parameter('columns').value), 1)
-        self.canvas_width = max(int(self.get_parameter('canvas_width').value), 640)
-        self.canvas_height = max(int(self.get_parameter('canvas_height').value), 360)
         self.layout_store_path = os.path.expanduser(
             str(self.get_parameter('layout_store_path').value).strip())
         self.show_toolbar = self._as_bool(self.get_parameter('show_toolbar').value)
@@ -66,6 +73,15 @@ class OperatorImageViewer(Node):
         self.window_x = int(self.get_parameter('window_x').value)
         self.window_y = int(self.get_parameter('window_y').value)
         self.headless_ok = self._as_bool(self.get_parameter('headless_ok').value)
+        self.auto_canvas_size = self._as_bool(self.get_parameter('auto_canvas_size').value)
+        self.fill_grid_on_reset = self._as_bool(
+            self.get_parameter('fill_grid_on_reset').value)
+        self.follow_window_size = self._as_bool(
+            self.get_parameter('follow_window_size').value)
+        requested_canvas_width = int(self.get_parameter('canvas_width').value)
+        requested_canvas_height = int(self.get_parameter('canvas_height').value)
+        self.canvas_width, self.canvas_height = self._resolve_canvas_size(
+            requested_canvas_width, requested_canvas_height)
 
         self.streams = self._parse_streams(self.get_parameter('streams').value)
         self.stream_by_name = {stream['name']: stream for stream in self.streams}
@@ -84,6 +100,7 @@ class OperatorImageViewer(Node):
         self.drag_start = None
         self.gui_available = False
         self._image_subscriptions = []
+        self._last_window_sync_s = 0.0
 
         self._load_layout()
 
@@ -122,6 +139,75 @@ class OperatorImageViewer(Node):
             return value.strip().lower() in ('1', 'true', 'yes', 'on')
         return bool(value)
 
+    def _resolve_canvas_size(self, requested_width, requested_height):
+        if not self.auto_canvas_size and requested_width > 0 and requested_height > 0:
+            return (
+                max(int(requested_width), MIN_CANVAS_WIDTH),
+                max(int(requested_height), MIN_CANVAS_HEIGHT),
+            )
+
+        screen_width, screen_height = self._detect_screen_size()
+        if screen_width <= 0 or screen_height <= 0:
+            screen_width = DEFAULT_AUTO_CANVAS_WIDTH
+            screen_height = DEFAULT_AUTO_CANVAS_HEIGHT
+
+        width = int(requested_width) if requested_width > 0 else screen_width - 96
+        height = (
+            int(requested_height)
+            if requested_height > 0
+            else screen_height - self.toolbar_height - 120
+        )
+        width = max(width, MIN_CANVAS_WIDTH)
+        height = max(height, MIN_CANVAS_HEIGHT)
+        return width, height
+
+    def _detect_screen_size(self):
+        size = self._detect_screen_size_tk()
+        if size:
+            return size
+        size = self._detect_screen_size_xdpyinfo()
+        if size:
+            return size
+        return 0, 0
+
+    def _detect_screen_size_tk(self):
+        if not os.environ.get('DISPLAY'):
+            return None
+        try:
+            import tkinter as tk
+            root = tk.Tk()
+            root.withdraw()
+            width = int(root.winfo_screenwidth())
+            height = int(root.winfo_screenheight())
+            root.destroy()
+            if width > 0 and height > 0:
+                return width, height
+        except Exception:
+            return None
+        return None
+
+    def _detect_screen_size_xdpyinfo(self):
+        if not os.environ.get('DISPLAY'):
+            return None
+        try:
+            result = subprocess.run(
+                ['xdpyinfo'],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=1.0,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        match = re.search(r'dimensions:\s+(\d+)x(\d+)\s+pixels', result.stdout or '')
+        if not match:
+            return None
+        width = int(match.group(1))
+        height = int(match.group(2))
+        if width <= 0 or height <= 0:
+            return None
+        return width, height
+
     def _parse_streams(self, raw_streams):
         streams = []
         for raw in list(raw_streams or []):
@@ -144,12 +230,33 @@ class OperatorImageViewer(Node):
 
     def _default_layout(self):
         layout = {}
+        row_count = max((len(self.streams) + self.columns - 1) // self.columns, 1)
+        if self.fill_grid_on_reset:
+            base_width = max(self.canvas_width // self.columns, MIN_TILE_WIDTH)
+            base_height = max(self.canvas_height // row_count, MIN_TILE_HEIGHT)
+        else:
+            base_width = self.tile_width
+            base_height = self.tile_height
         for index, stream in enumerate(self.streams):
+            column = index % self.columns
+            row = index // self.columns
+            x = column * base_width
+            y = row * base_height
+            width = (
+                self.canvas_width - x
+                if self.fill_grid_on_reset and column == self.columns - 1
+                else base_width
+            )
+            height = (
+                self.canvas_height - y
+                if self.fill_grid_on_reset and row == row_count - 1
+                else base_height
+            )
             rect = {
-                'x': (index % self.columns) * self.tile_width,
-                'y': (index // self.columns) * self.tile_height,
-                'width': self.tile_width,
-                'height': self.tile_height,
+                'x': x,
+                'y': y,
+                'width': width,
+                'height': height,
             }
             layout[stream['name']] = self._sanitize_rect(rect)
         return layout
@@ -167,9 +274,12 @@ class OperatorImageViewer(Node):
         stored_layout = payload.get('layout') if isinstance(payload, dict) else None
         if not isinstance(stored_layout, dict):
             return
+        stored_canvas_width = self._positive_int(payload.get('canvas_width'))
+        stored_canvas_height = self._positive_int(payload.get('canvas_height'))
         for name, rect in stored_layout.items():
             if name in self.layout_by_name and isinstance(rect, dict):
-                self.layout_by_name[name] = self._sanitize_rect(rect)
+                self.layout_by_name[name] = self._sanitize_rect(
+                    self._scale_rect_from_saved(rect, stored_canvas_width, stored_canvas_height))
 
         stored_order = payload.get('z_order', [])
         if isinstance(stored_order, list):
@@ -177,6 +287,27 @@ class OperatorImageViewer(Node):
             ordered.extend(name for name in self.layout_by_name.keys() if name not in ordered)
             self.z_order = ordered
         self.get_logger().info(f'loaded image viewer layout: {self.layout_store_path}')
+
+    def _positive_int(self, value):
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return 0
+        return number if number > 0 else 0
+
+    def _scale_rect_from_saved(self, rect, stored_canvas_width, stored_canvas_height):
+        if stored_canvas_width <= 0 or stored_canvas_height <= 0:
+            return rect
+        scale_x = self.canvas_width / float(stored_canvas_width)
+        scale_y = self.canvas_height / float(stored_canvas_height)
+        if abs(scale_x - 1.0) < 0.01 and abs(scale_y - 1.0) < 0.01:
+            return rect
+        return {
+            'x': int(round(float(rect.get('x', 0)) * scale_x)),
+            'y': int(round(float(rect.get('y', 0)) * scale_y)),
+            'width': int(round(float(rect.get('width', self.tile_width)) * scale_x)),
+            'height': int(round(float(rect.get('height', self.tile_height)) * scale_y)),
+        }
 
     def _save_layout(self):
         if not self.layout_store_path:
@@ -259,6 +390,7 @@ class OperatorImageViewer(Node):
     def _show(self):
         if not self.gui_available:
             return
+        self._sync_canvas_to_window_size()
         board = self._compose_board()
         try:
             cv2.imshow(self.window_title, board)
@@ -298,6 +430,79 @@ class OperatorImageViewer(Node):
             y0 = rect['y']
             canvas[y0:y0 + rect['height'], x0:x0 + rect['width']] = tile
         return board
+
+    def _sync_canvas_to_window_size(self):
+        if not self.follow_window_size or not os.environ.get('DISPLAY'):
+            return
+        now = time.time()
+        if now - self._last_window_sync_s < 0.5:
+            return
+        self._last_window_sync_s = now
+        geometry = self._current_window_geometry()
+        if not geometry:
+            return
+        _, _, width, height = geometry
+        target_width = max(int(width), MIN_CANVAS_WIDTH)
+        target_height = max(int(height) - self.toolbar_height, MIN_CANVAS_HEIGHT)
+        if (
+            abs(target_width - self.canvas_width) < 48 and
+            abs(target_height - self.canvas_height) < 48
+        ):
+            return
+        old_width = self.canvas_width
+        old_height = self.canvas_height
+        self.canvas_width = target_width
+        self.canvas_height = target_height
+        self._scale_layout_to_canvas(old_width, old_height)
+
+    def _current_window_geometry(self):
+        try:
+            result = subprocess.run(
+                ['wmctrl', '-lG'],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=0.5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        for line in (result.stdout or '').splitlines():
+            parts = line.split(None, 7)
+            if len(parts) < 8:
+                continue
+            title = parts[7]
+            if self.window_title not in title:
+                continue
+            try:
+                return (
+                    int(parts[2]),
+                    int(parts[3]),
+                    int(parts[4]),
+                    int(parts[5]),
+                )
+            except ValueError:
+                continue
+        return None
+
+    def _scale_layout_to_canvas(self, old_width, old_height):
+        if old_width <= 0 or old_height <= 0:
+            self.layout_by_name = self._default_layout()
+            return
+        scale_x = self.canvas_width / float(old_width)
+        scale_y = self.canvas_height / float(old_height)
+        scaled = {}
+        for name, rect in self.layout_by_name.items():
+            scaled[name] = self._sanitize_rect({
+                'x': int(round(rect.get('x', 0) * scale_x)),
+                'y': int(round(rect.get('y', 0) * scale_y)),
+                'width': int(round(rect.get('width', self.tile_width) * scale_x)),
+                'height': int(round(rect.get('height', self.tile_height) * scale_y)),
+            })
+        self.layout_by_name = scaled
+        self.drag_mode = ''
+        self.drag_start = None
 
     def _draw_toolbar(self, board):
         cv2.rectangle(board, (0, 0), (self.canvas_width, self.toolbar_height), (14, 16, 20), -1)

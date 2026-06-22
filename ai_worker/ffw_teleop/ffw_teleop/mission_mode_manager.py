@@ -78,8 +78,9 @@ class MissionModeManager(Node):
         self.declare_parameter('mission_state_topic', '/teleop/mission/state')
         self.declare_parameter('mission_panel_topic', '/teleop/mission_panel/compressed')
         self.declare_parameter('publish_hz', 2.0)
-        self.declare_parameter('panel_width', 640)
-        self.declare_parameter('panel_height', 360)
+        self.declare_parameter('panel_width', 1280)
+        self.declare_parameter('panel_height', 720)
+        self.declare_parameter('panel_jpeg_quality', 95)
         self.declare_parameter('initial_mission', '')
         self.declare_parameter('gui_enabled', True)
         self.declare_parameter('layout_command_topic', '/teleop/operator_layout/command')
@@ -93,6 +94,8 @@ class MissionModeManager(Node):
         publish_hz = max(float(self.get_parameter('publish_hz').value), 0.2)
         self.panel_width = max(int(self.get_parameter('panel_width').value), 320)
         self.panel_height = max(int(self.get_parameter('panel_height').value), 180)
+        self.panel_jpeg_quality = int(np.clip(
+            int(self.get_parameter('panel_jpeg_quality').value), 1, 100))
         self.gui_enabled = self._as_bool(self.get_parameter('gui_enabled').value)
         self.layout_command_topic = str(
             self.get_parameter('layout_command_topic').value).strip()
@@ -265,7 +268,8 @@ class MissionModeManager(Node):
         self.mission_state_pub.publish(state_msg)
 
         panel = self._render_panel(payload)
-        ok, encoded = cv2.imencode('.jpg', panel, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        ok, encoded = cv2.imencode(
+            '.jpg', panel, [int(cv2.IMWRITE_JPEG_QUALITY), self.panel_jpeg_quality])
         if ok:
             image_msg = CompressedImage()
             image_msg.header.stamp = self.get_clock().now().to_msg()
@@ -277,69 +281,94 @@ class MissionModeManager(Node):
     def _render_panel(self, payload):
         width = self.panel_width
         height = self.panel_height
+        scale = min(width / 640.0, height / 360.0)
+        margin = int(round(20 * scale))
+        header_h = int(round(72 * scale))
+        def p(x, y):
+            return int(round(x * scale)), int(round(y * scale))
+        def line(value):
+            return max(int(round(value * scale)), 1)
         mission_id = str(payload.get('mission_id') or 'A')
         title = str(payload.get('title') or '').strip()
         color = MISSION_COLORS_BGR.get(mission_id, (80, 80, 80))
         image = np.full((height, width, 3), (30, 32, 36), dtype=np.uint8)
-        cv2.rectangle(image, (0, 0), (width - 1, 72), color, -1)
-        self._put_text(image, mission_id, (20, 49), 1.12, (255, 255, 255), 2)
+        cv2.rectangle(image, (0, 0), (width - 1, header_h), color, -1)
+        self._put_text(
+            image, mission_id, p(20, 49), 1.12 * scale, (255, 255, 255), line(2))
         self._put_text(
             image,
             title,
-            (78, 34),
-            0.58,
+            p(78, 34),
+            0.58 * scale,
             (255, 255, 255),
-            2,
+            line(2),
         )
         self._put_text(
             image,
             'MISSION MODE',
-            (78, 60),
-            0.42,
+            p(78, 60),
+            0.42 * scale,
             (255, 255, 255),
-            1,
+            line(1),
         )
 
-        y = 112
+        y = int(round(112 * scale))
         y = self._draw_wrapped(
             image,
             str(payload.get('summary') or ''),
-            (20, y),
-            width - 40,
-            0.58,
+            (margin, y),
+            width - 2 * margin,
+            0.58 * scale,
             (234, 238, 242),
         )
 
-        y += 18
-        self._put_text(image, 'Specific feature slots', (20, y), 0.56, (210, 216, 222), 1)
-        y += 30
+        y += int(round(18 * scale))
+        self._put_text(
+            image, 'Specific feature slots', (margin, y),
+            0.56 * scale, (210, 216, 222), line(1))
+        y += int(round(30 * scale))
         for feature in payload.get('specific_features') or []:
             y = self._draw_wrapped(
                 image,
                 f'- {feature}',
-                (36, y),
-                width - 70,
-                0.50,
+                (int(round(36 * scale)), y),
+                width - int(round(70 * scale)),
+                0.50 * scale,
                 (235, 238, 240),
-            ) + 4
-            if y > height - 55:
+            ) + int(round(4 * scale))
+            if y > height - int(round(55 * scale)):
                 break
 
-        button_y = height - 38
+        button_y = height - int(round(38 * scale))
         for index, key in enumerate(('A', 'B', 'C', 'D')):
-            x0 = 20 + index * 70
+            x0 = int(round(20 * scale + index * 70 * scale))
             is_active = key == mission_id
             fill = MISSION_COLORS_BGR.get(key, (80, 80, 80)) if is_active else (54, 56, 62)
-            cv2.rectangle(image, (x0, button_y - 23), (x0 + 52, button_y + 8), fill, -1)
-            cv2.rectangle(image, (x0, button_y - 23), (x0 + 52, button_y + 8), (190, 196, 204), 1)
-            self._put_text(image, key, (x0 + 18, button_y), 0.58, (255, 255, 255), 1)
+            button_w = int(round(52 * scale))
+            cv2.rectangle(
+                image,
+                (x0, button_y - int(round(23 * scale))),
+                (x0 + button_w, button_y + int(round(8 * scale))),
+                fill,
+                -1,
+            )
+            cv2.rectangle(
+                image,
+                (x0, button_y - int(round(23 * scale))),
+                (x0 + button_w, button_y + int(round(8 * scale))),
+                (190, 196, 204),
+                line(1),
+            )
+            self._put_text(
+                image, key, (x0 + int(round(18 * scale)), button_y),
+                0.58 * scale, (255, 255, 255), line(1))
         self._put_text(
             image,
             f'Updated by {payload.get("updated_by", "--")}',
-            (width - 245, height - 16),
-            0.45,
+            (width - int(round(245 * scale)), height - int(round(16 * scale))),
+            0.45 * scale,
             (200, 206, 214),
-            1,
+            line(1),
         )
         return image
 

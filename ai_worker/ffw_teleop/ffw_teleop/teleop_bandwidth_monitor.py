@@ -28,9 +28,9 @@ class TeleopBandwidthMonitor(Node):
         self.declare_parameter('window_s', 3.0)
         self.declare_parameter('stale_timeout_s', 1.5)
         self.declare_parameter('publish_hz', 2.0)
-        self.declare_parameter('panel_width', 640)
-        self.declare_parameter('panel_height', 360)
-        self.declare_parameter('panel_jpeg_quality', 90)
+        self.declare_parameter('panel_width', 1280)
+        self.declare_parameter('panel_height', 720)
+        self.declare_parameter('panel_jpeg_quality', 95)
         self.declare_parameter('network_interface', '')
         self.declare_parameter('network_tx_enabled', True)
 
@@ -186,48 +186,60 @@ class TeleopBandwidthMonitor(Node):
     def _render_panel(self, payload):
         width = self.panel_width
         height = self.panel_height
+        scale = min(width / 640.0, height / 360.0)
+        margin = int(round(18 * scale))
+        def p(x, y):
+            return int(round(x * scale)), int(round(y * scale))
+        def line(value):
+            return max(int(round(value * scale)), 1)
         image = np.full((height, width, 3), (30, 32, 36), dtype=np.uint8)
         total_mbps = float(payload.get('total_mbps') or 0.0)
         usage = float(payload.get('usage_percent') or 0.0)
         headroom = float(payload.get('headroom_mbps') or 0.0)
         header_color = self._usage_color(usage)
-        cv2.rectangle(image, (0, 0), (width, 58), header_color, -1)
-        self._put_text(image, 'BANDWIDTH MONITOR', (16, 38), 0.82, (255, 255, 255), 2)
+        cv2.rectangle(image, (0, 0), (width, int(round(58 * scale))), header_color, -1)
+        self._put_text(
+            image, 'BANDWIDTH MONITOR', p(16, 38),
+            0.82 * scale, (255, 255, 255), line(2))
         self._put_text(
             image,
             f'{total_mbps:5.1f} / {self.available_mbps:.0f} Mbps  {usage:4.0f}%',
-            (330, 38),
-            0.58,
+            p(330, 38),
+            0.58 * scale,
             (255, 255, 255),
-            2,
+            line(2),
         )
 
-        self._draw_usage_bar(image, 18, 76, width - 36, 18, usage)
+        self._draw_usage_bar(
+            image, margin, int(round(76 * scale)), width - 2 * margin,
+            int(round(18 * scale)), usage)
         self._put_text(
             image,
             f'HEADROOM {headroom:5.1f} Mbps',
-            (18, 116),
-            0.52,
+            p(18, 116),
+            0.52 * scale,
             (226, 232, 238),
-            1,
+            line(1),
         )
         net_tx = payload.get('net_tx_mbps')
         net_text = 'NET TX --' if net_tx is None else f'NET TX {float(net_tx):5.1f} Mbps'
-        self._put_text(image, net_text, (340, 116), 0.52, (226, 232, 238), 1)
+        self._put_text(
+            image, net_text, p(340, 116), 0.52 * scale, (226, 232, 238), line(1))
 
         streams = payload.get('streams') or {}
-        y = 154
+        y = int(round(154 * scale))
+        row_step = int(round(40 * scale))
         for name, label in STREAM_ROWS:
-            self._draw_stream_row(image, label, streams.get(name) or {}, y)
-            y += 40
+            self._draw_stream_row(image, label, streams.get(name) or {}, y, scale)
+            y += row_step
 
         self._put_text(
             image,
             f'Rolling window {self.window_s:.1f}s  Budget {self.available_mbps:.0f} Mbps',
-            (18, height - 18),
-            0.42,
+            (margin, height - int(round(18 * scale))),
+            0.42 * scale,
             (172, 184, 194),
-            1,
+            line(1),
         )
         return image
 
@@ -244,7 +256,9 @@ class TeleopBandwidthMonitor(Node):
             )
         cv2.rectangle(image, (x, y), (x + width, y + height), (160, 168, 176), 1)
 
-    def _draw_stream_row(self, image, label, stream, y):
+    def _draw_stream_row(self, image, label, stream, y, scale):
+        def line(value):
+            return max(int(round(value * scale)), 1)
         fresh = bool(stream.get('fresh'))
         color = (226, 232, 238) if fresh else (126, 134, 144)
         if fresh:
@@ -262,14 +276,17 @@ class TeleopBandwidthMonitor(Node):
             text = f'{label:<7} -- Hz    -- M     STALE'
             usage = 0.0
             bar_color = (86, 90, 98)
-        self._put_text(image, text, (18, y), 0.46, color, 1)
-        bar_width = 104
-        x = self.panel_width - bar_width - 18
-        cv2.rectangle(image, (x, y - 15), (x + bar_width, y - 4), (58, 61, 68), -1)
+        self._put_text(
+            image, text, (int(round(18 * scale)), y), 0.46 * scale, color, line(1))
+        bar_width = int(round(104 * scale))
+        x = self.panel_width - bar_width - int(round(18 * scale))
+        y_top = y - int(round(15 * scale))
+        y_bottom = y - int(round(4 * scale))
+        cv2.rectangle(image, (x, y_top), (x + bar_width, y_bottom), (58, 61, 68), -1)
         fill_width = int(bar_width * min(max(usage, 0.0), 100.0) / 100.0)
         if fill_width > 0:
-            cv2.rectangle(image, (x, y - 15), (x + fill_width, y - 4), bar_color, -1)
-        cv2.rectangle(image, (x, y - 15), (x + bar_width, y - 4), (130, 138, 148), 1)
+            cv2.rectangle(image, (x, y_top), (x + fill_width, y_bottom), bar_color, -1)
+        cv2.rectangle(image, (x, y_top), (x + bar_width, y_bottom), (130, 138, 148), line(1))
 
     def _usage_color(self, usage_percent):
         if usage_percent >= 90.0:
