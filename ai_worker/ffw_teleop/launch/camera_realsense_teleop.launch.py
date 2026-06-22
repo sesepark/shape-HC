@@ -32,7 +32,7 @@ def yaml_to_dict(path_to_yaml):
 
 
 serials_path = os.path.join(
-    get_package_share_directory('ffw_bringup'), 'config', 'common', 'rs_serial.yaml')
+    get_package_share_directory('ffw_teleop'), 'config', 'wrist_realsense_serials.yaml')
 serials = yaml_to_dict(serials_path)
 serial1 = serials.get('camera1_serial')
 serial2 = serials.get('camera2_serial')
@@ -82,7 +82,7 @@ local_parameters = [
      'description': 'keep left RealSense colorizer disabled for teleoperation'},
     {'name': 'colorizer.enable2', 'default': 'false',
      'description': 'keep right RealSense colorizer disabled for teleoperation'},
-    {'name': 'right_wrist_start_delay_s', 'default': '3.0',
+    {'name': 'right_wrist_start_delay_s', 'default': '8.0',
      'description': 'delay before launching the right wrist camera'},
 ]
 

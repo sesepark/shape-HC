@@ -296,7 +296,7 @@ def generate_launch_description():
         DeclareLaunchArgument('rviz_gl_mode', default_value='native'),
         DeclareLaunchArgument('start_mission_control', default_value='true'),
         DeclareLaunchArgument('start_operator_image_viewer', default_value='true'),
-        DeclareLaunchArgument('start_operator_drive_panel', default_value='false'),
+        DeclareLaunchArgument('start_operator_drive_panel', default_value='true'),
         DeclareLaunchArgument('mission_keyboard_drive_enabled', default_value='false'),
         DeclareLaunchArgument(
             'start_cmd_vel_mux',
@@ -325,9 +325,9 @@ def generate_launch_description():
             ])),
         DeclareLaunchArgument(
             'cmd_vel_mux_status_topic', default_value='/teleop/cmd_vel_mux/status'),
-        DeclareLaunchArgument('keyboard_linear_x_mps', default_value='0.04'),
-        DeclareLaunchArgument('keyboard_linear_y_mps', default_value='0.04'),
-        DeclareLaunchArgument('keyboard_angular_z_radps', default_value='0.10'),
+        DeclareLaunchArgument('keyboard_linear_x_mps', default_value='0.1666667'),
+        DeclareLaunchArgument('keyboard_linear_y_mps', default_value='0.1666667'),
+        DeclareLaunchArgument('keyboard_angular_z_radps', default_value='0.25'),
         DeclareLaunchArgument('keyboard_publish_hz', default_value='30.0'),
         DeclareLaunchArgument('keyboard_key_timeout_s', default_value='0.15'),
         DeclareLaunchArgument('keyboard_stale_timeout_s', default_value='0.20'),

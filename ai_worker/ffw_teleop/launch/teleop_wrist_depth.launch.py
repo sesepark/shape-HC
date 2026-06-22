@@ -1,5 +1,8 @@
 """Teleoperation camera/depth feedback for ZED and selectable wrist cameras."""
 
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
@@ -11,6 +14,22 @@ from launch.substitutions import PathJoinSubstitution
 from launch.substitutions import PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+import yaml
+
+
+def yaml_to_dict(path_to_yaml):
+    with open(path_to_yaml, 'r', encoding='utf-8') as stream:
+        return yaml.load(stream, Loader=yaml.SafeLoader) or {}
+
+
+def wrist_serial_defaults():
+    serials_path = os.path.join(
+        get_package_share_directory('ffw_teleop'), 'config', 'wrist_realsense_serials.yaml')
+    serials = yaml_to_dict(serials_path)
+    return (
+        serials.get('camera1_serial', ''),
+        serials.get('camera2_serial', ''),
+    )
 
 
 def make_wrist_camera_launch(condition):
@@ -26,6 +45,8 @@ def make_wrist_camera_launch(condition):
         launch_arguments={
             'start_left_wrist': LaunchConfiguration('start_left_wrist'),
             'start_right_wrist': LaunchConfiguration('start_right_wrist'),
+            'serial_no1': LaunchConfiguration('left_wrist_serial_no'),
+            'serial_no2': LaunchConfiguration('right_wrist_serial_no'),
             'depth_module.depth_profile1': LaunchConfiguration('left_depth_profile'),
             'depth_module.depth_profile2': LaunchConfiguration('right_depth_profile'),
             'depth_module.color_profile1': LaunchConfiguration('left_color_profile'),
@@ -63,6 +84,7 @@ def wrist_high_value(default_value, high_value):
 
 
 def generate_launch_description():
+    left_wrist_serial_no, right_wrist_serial_no = wrist_serial_defaults()
     start_zed = LaunchConfiguration('start_zed')
     start_zed_depth_assist = LaunchConfiguration('start_zed_depth_assist')
     start_overlay = LaunchConfiguration('start_overlay')
@@ -394,10 +416,12 @@ def generate_launch_description():
             default_value=wrist_high_value('480,270,30', '640,480,30')),
         DeclareLaunchArgument(
             'left_color_profile',
-            default_value=wrist_high_value('424,240,15', '640,480,30')),
+            default_value=wrist_high_value('424,240,10', '640,480,30')),
         DeclareLaunchArgument(
             'right_color_profile',
-            default_value=wrist_high_value('424,240,15', '640,480,30')),
+            default_value=wrist_high_value('424,240,10', '640,480,30')),
+        DeclareLaunchArgument('left_wrist_serial_no', default_value=left_wrist_serial_no),
+        DeclareLaunchArgument('right_wrist_serial_no', default_value=right_wrist_serial_no),
         DeclareLaunchArgument(
             'enable_left_color',
             default_value=profile_value('true', 'true', 'true', 'true')),
@@ -406,7 +430,7 @@ def generate_launch_description():
             default_value=profile_value('true', 'true', 'true', 'true')),
         DeclareLaunchArgument('enable_left_align_depth', default_value='true'),
         DeclareLaunchArgument('enable_right_align_depth', default_value='true'),
-        DeclareLaunchArgument('right_wrist_start_delay_s', default_value='3.0'),
+        DeclareLaunchArgument('right_wrist_start_delay_s', default_value='8.0'),
         DeclareLaunchArgument(
             'depth_topic',
             default_value='/camera_right/camera_right/aligned_depth_to_color/image_raw'),
@@ -484,9 +508,9 @@ def generate_launch_description():
         DeclareLaunchArgument('left_view_flip_vertical', default_value='false'),
         DeclareLaunchArgument('right_view_flip_vertical', default_value='false'),
         DeclareLaunchArgument('left_gripper_target_offset_x_px', default_value='0'),
-        DeclareLaunchArgument('left_gripper_target_offset_y_px', default_value='48'),
+        DeclareLaunchArgument('left_gripper_target_offset_y_px', default_value='96'),
         DeclareLaunchArgument('right_gripper_target_offset_x_px', default_value='0'),
-        DeclareLaunchArgument('right_gripper_target_offset_y_px', default_value='48'),
+        DeclareLaunchArgument('right_gripper_target_offset_y_px', default_value='96'),
         DeclareLaunchArgument('band_red_max_m', default_value='0.06'),
         DeclareLaunchArgument('band_green_min_m', default_value='0.06'),
         DeclareLaunchArgument('band_green_max_m', default_value='0.10'),

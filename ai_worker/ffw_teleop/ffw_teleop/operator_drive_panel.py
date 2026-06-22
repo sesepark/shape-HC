@@ -31,9 +31,9 @@ class OperatorDrivePanel(Node):
         self.declare_parameter('show_hz', 30.0)
         self.declare_parameter('keyboard_cmd_vel_topic', '/teleop/keyboard_cmd_vel')
         self.declare_parameter('keyboard_enabled_topic', '/teleop/keyboard_drive/enabled')
-        self.declare_parameter('keyboard_linear_x_mps', 0.04)
-        self.declare_parameter('keyboard_linear_y_mps', 0.04)
-        self.declare_parameter('keyboard_angular_z_radps', 0.10)
+        self.declare_parameter('keyboard_linear_x_mps', 0.1666667)
+        self.declare_parameter('keyboard_linear_y_mps', 0.1666667)
+        self.declare_parameter('keyboard_angular_z_radps', 0.25)
         self.declare_parameter('click_jog_duration_s', 0.25)
         self.declare_parameter('operator_ok_topic', '/teleop/operator_ok')
         self.declare_parameter('ok_overlay_duration_s', 3.0)
@@ -137,7 +137,7 @@ class OperatorDrivePanel(Node):
         frame = self._draw_panel()
         try:
             cv2.imshow(self.window_title, frame)
-            key = cv2.waitKey(1) & 0xFF
+            key = cv2.waitKeyEx(1)
         except cv2.error as exc:
             self.get_logger().error(f'drive panel failed; disabling GUI: {exc}')
             self.gui_available = False
@@ -145,6 +145,8 @@ class OperatorDrivePanel(Node):
         if key in (27, ord('q'), ord('Q')):
             self.gui_available = False
             cv2.destroyWindow(self.window_title)
+        elif key != -1:
+            self._handle_key(key)
 
     def _update_draw_size(self):
         if not hasattr(cv2, 'getWindowImageRect'):
@@ -257,14 +259,47 @@ class OperatorDrivePanel(Node):
         elif action == 'ok':
             self._send_ok()
         elif action in ('forward', 'backward', 'left', 'right', 'rot_left', 'rot_right'):
-            if not self.drive_enabled:
-                self.status_text = 'LOCKED - CLICK DRIVE LOCKED FIRST'
-                self._stop_motion()
-                return
-            self.active_action = action
-            self.active_until_s = time.time() + self.click_jog_duration_s
-            self.status_text = f'JOG {action.upper()}'
-            self.cmd_pub.publish(self._make_twist(action))
+            self._start_motion(action, 'CLICK')
+
+    def _handle_key(self, key):
+        key_low = key & 0xFF
+        if key_low in (ord('k'), ord('K')):
+            self._set_drive_enabled(not self.drive_enabled)
+            return
+        if key_low == ord(' '):
+            self._stop_motion()
+            return
+        if key_low in (ord('o'), ord('O')):
+            self._send_ok()
+            return
+
+        arrow_actions = {
+            82: 'forward',
+            65362: 'forward',
+            2490368: 'forward',
+            84: 'backward',
+            65364: 'backward',
+            2621440: 'backward',
+            81: 'left',
+            65361: 'left',
+            2424832: 'left',
+            83: 'right',
+            65363: 'right',
+            2555904: 'right',
+        }
+        action = arrow_actions.get(key)
+        if action is not None:
+            self._start_motion(action, 'KEY')
+
+    def _start_motion(self, action, source):
+        if not self.drive_enabled:
+            self.status_text = 'LOCKED - CLICK DRIVE LOCKED FIRST'
+            self._stop_motion()
+            return
+        self.active_action = action
+        self.active_until_s = time.time() + self.click_jog_duration_s
+        self.status_text = f'{source} {action.upper()}'
+        self.cmd_pub.publish(self._make_twist(action))
 
     def _set_drive_enabled(self, enabled):
         self.drive_enabled = bool(enabled)

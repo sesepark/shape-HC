@@ -36,9 +36,9 @@ constexpr double TACT_SWITCH_THRESHOLD = 0.5;
 constexpr double DEFAULT_JOG_SCALE = 0.1;
 
   // cmd_vel scaling factors
-constexpr double LINEAR_X_SCALE = 3.0;
-constexpr double LINEAR_Y_SCALE = 3.0;
-constexpr double ANGULAR_Z_SCALE = 2.0;
+constexpr double LINEAR_X_SCALE = 6.0;
+constexpr double LINEAR_Y_SCALE = 6.0;
+constexpr double ANGULAR_Z_SCALE = 4.0;
 
   // Sensor names
 const char LEFT_JOYSTICK_NAME[] = "sensorxel_l_joy";

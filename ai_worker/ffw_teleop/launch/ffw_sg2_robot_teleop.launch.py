@@ -50,7 +50,7 @@ def generate_launch_description():
         DeclareLaunchArgument('bandwidth_usb_available_mbps', default_value='320.0'),
         DeclareLaunchArgument(
             'bandwidth_panel_topic', default_value='/teleop/bandwidth_monitor/compressed'),
-        DeclareLaunchArgument('right_wrist_start_delay_s', default_value='3.0'),
+        DeclareLaunchArgument('right_wrist_start_delay_s', default_value='8.0'),
         DeclareLaunchArgument('wrist_high_profile', default_value='false'),
         robot_teleop,
     ])

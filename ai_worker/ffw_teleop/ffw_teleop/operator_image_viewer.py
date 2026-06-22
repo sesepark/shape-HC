@@ -26,8 +26,8 @@ DEFAULT_STREAMS = [
 ]
 
 DEFAULT_MISSING_IMAGE_HINTS = [
-    'L COLOR|disabled / enable wrist_high_profile',
-    'R COLOR|disabled / enable wrist_high_profile',
+    'L COLOR|waiting for left wrist color stream',
+    'R COLOR|waiting for right wrist color stream',
 ]
 
 TOOLBAR_HEIGHT = 42

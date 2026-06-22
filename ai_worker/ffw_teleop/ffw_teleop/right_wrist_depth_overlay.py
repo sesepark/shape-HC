@@ -57,7 +57,7 @@ class WristDepthOverlay(Node):
         self.declare_parameter('view_flip_horizontal', False)
         self.declare_parameter('view_flip_vertical', False)
         self.declare_parameter('gripper_target_offset_x_px', 0)
-        self.declare_parameter('gripper_target_offset_y_px', 48)
+        self.declare_parameter('gripper_target_offset_y_px', 96)
         self.declare_parameter('band_red_max_m', 0.06)
         self.declare_parameter('band_green_min_m', 0.06)
         self.declare_parameter('band_green_max_m', 0.10)

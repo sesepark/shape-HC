@@ -1,0 +1,4 @@
+# Robot-specific wrist RealSense serial numbers used by teleop launches.
+# Values keep the quote format expected by realsense2_camera's serial_no parameter.
+camera1_serial: "'335122271636'"
+camera2_serial: "'335122270229'"
