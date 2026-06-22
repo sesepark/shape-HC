@@ -25,6 +25,11 @@ DEFAULT_STREAMS = [
     'R COLOR|/teleop/wrist_right/color/compressed',
 ]
 
+DEFAULT_MISSING_IMAGE_HINTS = [
+    'L COLOR|disabled / enable wrist_high_profile',
+    'R COLOR|disabled / enable wrist_high_profile',
+]
+
 TOOLBAR_HEIGHT = 42
 RESIZE_HANDLE_PX = 18
 MIN_TILE_WIDTH = 180
@@ -56,6 +61,7 @@ class OperatorImageViewer(Node):
         self.declare_parameter('show_toolbar', True)
         self.declare_parameter('show_hz', 20.0)
         self.declare_parameter('max_stale_sec', 0.75)
+        self.declare_parameter('missing_image_hints', DEFAULT_MISSING_IMAGE_HINTS)
         self.declare_parameter('window_x', 1520)
         self.declare_parameter('window_y', 40)
         self.declare_parameter('headless_ok', True)
@@ -86,6 +92,8 @@ class OperatorImageViewer(Node):
             requested_canvas_width, requested_canvas_height)
 
         self.streams = self._parse_streams(self.get_parameter('streams').value)
+        self.missing_image_hints = self._parse_hints(
+            self.get_parameter('missing_image_hints').value)
         self.stream_by_name = {stream['name']: stream for stream in self.streams}
         self.frames = {
             stream['name']: {
@@ -229,6 +237,19 @@ class OperatorImageViewer(Node):
             {'name': item.split('|', 1)[0], 'topic': item.split('|', 1)[1]}
             for item in DEFAULT_STREAMS
         ]
+
+    def _parse_hints(self, raw_hints):
+        hints = {}
+        for raw in list(raw_hints or []):
+            text = str(raw).strip()
+            if not text or '|' not in text:
+                continue
+            name, hint = text.split('|', 1)
+            name = name.strip()
+            hint = hint.strip()
+            if name and hint:
+                hints[name] = hint
+        return hints
 
     def _default_layout(self):
         layout = {}
@@ -567,7 +588,8 @@ class OperatorImageViewer(Node):
         stale = stamp <= 0.0 or (now - stamp) > self.max_stale_sec
         if image is None:
             tile = np.full((height, width, 3), (34, 36, 42), dtype=np.uint8)
-            self._put_center(tile, 'waiting for image', (166, 172, 180), 0.58)
+            hint = self.missing_image_hints.get(name, 'waiting for image')
+            self._put_center(tile, hint, (166, 172, 180), 0.58)
         else:
             tile = self._fit_image(image, width, height)
             if stale:

@@ -27,6 +27,13 @@ def profile_value(stable_low_latency, wired_360_default, precision_one_wrist, de
     ])
 
 
+def wrist_high_value(default_value, high_value):
+    high_profile = LaunchConfiguration('wrist_high_profile')
+    return PythonExpression([
+        "'", high_profile, "' == 'true' and '", high_value, "' or '", default_value, "'",
+    ])
+
+
 def generate_launch_description():
     leader_controller_config = LaunchConfiguration('leader_controller_config')
     leader_left_port = LaunchConfiguration('leader_left_port')
@@ -60,6 +67,7 @@ def generate_launch_description():
             ])),
         launch_arguments={
             'teleop_feedback_profile': LaunchConfiguration('teleop_feedback_profile'),
+            'wrist_high_profile': LaunchConfiguration('wrist_high_profile'),
             'start_zed': LaunchConfiguration('start_zed'),
             'start_wrist_cameras': LaunchConfiguration('start_wrist_cameras'),
             'start_left_wrist': LaunchConfiguration('start_left_wrist'),
@@ -72,6 +80,7 @@ def generate_launch_description():
             'right_wrist_start_delay_s': LaunchConfiguration('right_wrist_start_delay_s'),
             'start_bandwidth_monitor': LaunchConfiguration('start_bandwidth_monitor'),
             'bandwidth_available_mbps': LaunchConfiguration('bandwidth_available_mbps'),
+            'bandwidth_usb_available_mbps': LaunchConfiguration('bandwidth_usb_available_mbps'),
             'bandwidth_panel_topic': LaunchConfiguration('bandwidth_panel_topic'),
             'record_practice_events': LaunchConfiguration('record_practice_events'),
             'practice_event_log_path': LaunchConfiguration('practice_event_log_path'),
@@ -115,6 +124,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_left_overlay', default_value='true'),
         DeclareLaunchArgument('start_right_overlay', default_value='true'),
         DeclareLaunchArgument('teleop_feedback_profile', default_value='wired_360_default'),
+        DeclareLaunchArgument('wrist_high_profile', default_value='false'),
         DeclareLaunchArgument(
             'overlay_fps',
             default_value=profile_value('10.0', '30.0', '30.0', '30.0')),
@@ -123,10 +133,11 @@ def generate_launch_description():
             default_value=profile_value('false', 'false', 'false', 'true')),
         DeclareLaunchArgument(
             'publish_base_compressed',
-            default_value=profile_value('false', 'true', 'false', 'true')),
+            default_value=wrist_high_value('false', 'true')),
         DeclareLaunchArgument('right_wrist_start_delay_s', default_value='3.0'),
         DeclareLaunchArgument('start_bandwidth_monitor', default_value='true'),
         DeclareLaunchArgument('bandwidth_available_mbps', default_value='350.0'),
+        DeclareLaunchArgument('bandwidth_usb_available_mbps', default_value='320.0'),
         DeclareLaunchArgument(
             'bandwidth_panel_topic', default_value='/teleop/bandwidth_monitor/compressed'),
         DeclareLaunchArgument('record_practice_events', default_value='true'),

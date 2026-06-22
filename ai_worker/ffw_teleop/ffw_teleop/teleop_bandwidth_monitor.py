@@ -36,6 +36,19 @@ class TeleopBandwidthMonitor(Node):
         self.declare_parameter('network_interface', '')
         self.declare_parameter('network_tx_enabled', True)
         self.declare_parameter('target_fps', 30.0)
+        self.declare_parameter('usb_estimate_enabled', True)
+        self.declare_parameter('usb_available_mbps', 320.0)
+        self.declare_parameter('usb_depth_bytes_per_pixel', 2.0)
+        self.declare_parameter('usb_color_bytes_per_pixel', 2.0)
+        self.declare_parameter('usb_overhead_factor', 1.15)
+        self.declare_parameter('usb_wrist_left_depth_profile', '')
+        self.declare_parameter('usb_wrist_right_depth_profile', '')
+        self.declare_parameter('usb_wrist_left_color_profile', '')
+        self.declare_parameter('usb_wrist_right_color_profile', '')
+        self.declare_parameter('usb_wrist_left_depth_enabled', True)
+        self.declare_parameter('usb_wrist_right_depth_enabled', True)
+        self.declare_parameter('usb_wrist_left_color_enabled', True)
+        self.declare_parameter('usb_wrist_right_color_enabled', True)
 
         self.stream_stats_topic = str(
             self.get_parameter('stream_stats_topic').value).strip()
@@ -54,6 +67,16 @@ class TeleopBandwidthMonitor(Node):
         self.network_interface = str(
             self.get_parameter('network_interface').value).strip()
         self.target_fps = max(float(self.get_parameter('target_fps').value), 0.1)
+        self.usb_estimate_enabled = self._as_bool(
+            self.get_parameter('usb_estimate_enabled').value)
+        self.usb_available_mbps = max(
+            float(self.get_parameter('usb_available_mbps').value), 1.0)
+        self.usb_depth_bytes_per_pixel = max(
+            float(self.get_parameter('usb_depth_bytes_per_pixel').value), 0.1)
+        self.usb_color_bytes_per_pixel = max(
+            float(self.get_parameter('usb_color_bytes_per_pixel').value), 0.1)
+        self.usb_overhead_factor = max(
+            float(self.get_parameter('usb_overhead_factor').value), 1.0)
         if self.network_tx_enabled and not self.network_interface:
             self.network_interface = self._detect_network_interface()
         self.last_tx_sample = None
@@ -130,6 +153,7 @@ class TeleopBandwidthMonitor(Node):
             'usage_percent': usage_percent,
             'headroom_mbps': self.available_mbps - total_mbps,
             'net_tx_mbps': self._network_tx_mbps(now),
+            'usb_estimate': self._usb_estimate(),
             'streams': streams,
         }
 
@@ -230,8 +254,12 @@ class TeleopBandwidthMonitor(Node):
         self._put_text(
             image, net_text, p(340, 116), 0.52 * scale, (226, 232, 238), line(1))
 
+        usb = payload.get('usb_estimate') or {}
+        usb_text, usb_color = self._usb_summary_text(usb)
+        self._put_text(image, usb_text, p(18, 140), 0.44 * scale, usb_color, line(1))
+
         streams = payload.get('streams') or {}
-        y = int(round(148 * scale))
+        y = int(round(168 * scale))
         row_step = int(round(34 * scale))
         for name, label in STREAM_ROWS:
             self._draw_stream_row(image, label, streams.get(name) or {}, y, scale)
@@ -299,6 +327,73 @@ class TeleopBandwidthMonitor(Node):
         if usage_percent >= 70.0:
             return (42, 154, 232)
         return (65, 166, 92)
+
+    def _usb_summary_text(self, usb):
+        if not self.usb_estimate_enabled or not usb:
+            return 'USB REQ --', (172, 184, 194)
+        total = float(usb.get('total_mbps') or 0.0)
+        available = float(usb.get('available_mbps') or self.usb_available_mbps)
+        usage = 100.0 * total / max(available, 1.0)
+        profiles = usb.get('profiles') or []
+        active = ', '.join(
+            f"{item.get('label')} {item.get('profile')}"
+            for item in profiles
+            if item.get('enabled') and item.get('profile')
+        )
+        if len(active) > 80:
+            active = active[:77] + '...'
+        text = f'USB REQ ~{total:5.0f}/{available:.0f} Mbps {usage:4.0f}%'
+        if active:
+            text = f'{text}  {active}'
+        return text, self._usage_color(usage)
+
+    def _usb_estimate(self):
+        if not self.usb_estimate_enabled:
+            return {}
+        specs = (
+            ('L-D', 'usb_wrist_left_depth_profile', 'usb_wrist_left_depth_enabled', 'depth'),
+            ('R-D', 'usb_wrist_right_depth_profile', 'usb_wrist_right_depth_enabled', 'depth'),
+            ('L-C', 'usb_wrist_left_color_profile', 'usb_wrist_left_color_enabled', 'color'),
+            ('R-C', 'usb_wrist_right_color_profile', 'usb_wrist_right_color_enabled', 'color'),
+        )
+        profiles = []
+        total = 0.0
+        for label, profile_param, enabled_param, kind in specs:
+            profile = str(self.get_parameter(profile_param).value or '').strip()
+            enabled = self._as_bool(self.get_parameter(enabled_param).value)
+            width, height, fps = self._parse_camera_profile(profile)
+            bpp = (
+                self.usb_depth_bytes_per_pixel
+                if kind == 'depth'
+                else self.usb_color_bytes_per_pixel
+            )
+            mbps = 0.0
+            if enabled and width > 0 and height > 0 and fps > 0.0:
+                mbps = width * height * fps * bpp * 8.0 / 1e6
+                mbps *= self.usb_overhead_factor
+            total += mbps
+            profiles.append({
+                'label': label,
+                'profile': profile,
+                'enabled': enabled,
+                'kind': kind,
+                'estimated_mbps': mbps,
+            })
+        return {
+            'available_mbps': self.usb_available_mbps,
+            'total_mbps': total,
+            'usage_percent': 100.0 * total / self.usb_available_mbps,
+            'profiles': profiles,
+        }
+
+    def _parse_camera_profile(self, profile):
+        parts = [part.strip() for part in str(profile or '').split(',')]
+        if len(parts) != 3:
+            return 0, 0, 0.0
+        try:
+            return int(parts[0]), int(parts[1]), float(parts[2])
+        except ValueError:
+            return 0, 0, 0.0
 
     def _put_text(self, image, text, origin, scale, color, thickness):
         cv2.putText(

@@ -55,6 +55,13 @@ def profile_value(stable_low_latency, wired_360_default, precision_one_wrist, de
     ])
 
 
+def wrist_high_value(default_value, high_value):
+    high_profile = LaunchConfiguration('wrist_high_profile')
+    return PythonExpression([
+        "'", high_profile, "' == 'true' and '", high_value, "' or '", default_value, "'",
+    ])
+
+
 def generate_launch_description():
     start_zed = LaunchConfiguration('start_zed')
     start_zed_depth_assist = LaunchConfiguration('start_zed_depth_assist')
@@ -318,11 +325,19 @@ def generate_launch_description():
             'panel_topic': LaunchConfiguration('bandwidth_panel_topic'),
             'available_mbps': LaunchConfiguration('bandwidth_available_mbps'),
             'publish_hz': LaunchConfiguration('bandwidth_monitor_publish_hz'),
+            'usb_available_mbps': LaunchConfiguration('bandwidth_usb_available_mbps'),
+            'usb_wrist_left_depth_profile': LaunchConfiguration('left_depth_profile'),
+            'usb_wrist_right_depth_profile': LaunchConfiguration('right_depth_profile'),
+            'usb_wrist_left_color_profile': LaunchConfiguration('left_color_profile'),
+            'usb_wrist_right_color_profile': LaunchConfiguration('right_color_profile'),
+            'usb_wrist_left_color_enabled': LaunchConfiguration('enable_left_color'),
+            'usb_wrist_right_color_enabled': LaunchConfiguration('enable_right_color'),
         }],
     )
 
     return LaunchDescription([
         DeclareLaunchArgument('teleop_feedback_profile', default_value='wired_360_default'),
+        DeclareLaunchArgument('wrist_high_profile', default_value='false'),
         DeclareLaunchArgument('start_zed', default_value='true'),
         DeclareLaunchArgument('start_wrist_cameras', default_value='true'),
         DeclareLaunchArgument('start_left_wrist', default_value='true'),
@@ -371,16 +386,16 @@ def generate_launch_description():
         DeclareLaunchArgument('zed_component_min_area_px', default_value='80.0'),
         DeclareLaunchArgument(
             'left_depth_profile',
-            default_value=profile_value('480,270,15', '640,480,30', '480,270,15', '640,480,30')),
+            default_value=wrist_high_value('480,270,30', '640,480,30')),
         DeclareLaunchArgument(
             'right_depth_profile',
-            default_value=profile_value('480,270,15', '640,480,30', '640,480,30', '640,480,30')),
+            default_value=wrist_high_value('480,270,30', '640,480,30')),
         DeclareLaunchArgument(
             'left_color_profile',
-            default_value=profile_value('424,240,15', '640,480,30', '424,240,15', '640,480,30')),
+            default_value=wrist_high_value('424,240,15', '640,480,30')),
         DeclareLaunchArgument(
             'right_color_profile',
-            default_value=profile_value('424,240,15', '640,480,30', '640,480,30', '640,480,30')),
+            default_value=wrist_high_value('424,240,15', '640,480,30')),
         DeclareLaunchArgument(
             'enable_left_color',
             default_value=profile_value('true', 'true', 'true', 'true')),
@@ -432,7 +447,7 @@ def generate_launch_description():
             default_value=profile_value('false', 'false', 'false', 'true')),
         DeclareLaunchArgument(
             'publish_base_compressed',
-            default_value=profile_value('false', 'true', 'false', 'true')),
+            default_value=wrist_high_value('false', 'true')),
         DeclareLaunchArgument('publish_metrics', default_value='true'),
         DeclareLaunchArgument(
             'overlay_fps',
@@ -513,6 +528,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'bandwidth_panel_topic', default_value='/teleop/bandwidth_monitor/compressed'),
         DeclareLaunchArgument('bandwidth_available_mbps', default_value='350.0'),
+        DeclareLaunchArgument('bandwidth_usb_available_mbps', default_value='320.0'),
         DeclareLaunchArgument('bandwidth_monitor_publish_hz', default_value='2.0'),
         DeclareLaunchArgument('table_reference_enabled', default_value='false'),
         DeclareLaunchArgument('table_x_m', default_value='0.0'),
