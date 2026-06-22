@@ -416,10 +416,10 @@ def generate_launch_description():
             default_value=wrist_high_value('480,270,30', '640,480,30')),
         DeclareLaunchArgument(
             'left_color_profile',
-            default_value=wrist_high_value('424,240,10', '640,480,30')),
+            default_value=wrist_high_value('424,240,15', '640,480,30')),
         DeclareLaunchArgument(
             'right_color_profile',
-            default_value=wrist_high_value('424,240,10', '640,480,30')),
+            default_value=wrist_high_value('424,240,15', '640,480,30')),
         DeclareLaunchArgument('left_wrist_serial_no', default_value=left_wrist_serial_no),
         DeclareLaunchArgument('right_wrist_serial_no', default_value=right_wrist_serial_no),
         DeclareLaunchArgument(

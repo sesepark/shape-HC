@@ -35,6 +35,7 @@ class OperatorDrivePanel(Node):
         self.declare_parameter('keyboard_linear_y_mps', 0.1666667)
         self.declare_parameter('keyboard_angular_z_radps', 0.25)
         self.declare_parameter('click_jog_duration_s', 0.25)
+        self.declare_parameter('mouse_hold_timeout_s', 6.0)
         self.declare_parameter('operator_ok_topic', '/teleop/operator_ok')
         self.declare_parameter('ok_overlay_duration_s', 3.0)
         self.declare_parameter('headless_ok', True)
@@ -57,6 +58,8 @@ class OperatorDrivePanel(Node):
             float(self.get_parameter('keyboard_angular_z_radps').value), 0.0)
         self.click_jog_duration_s = max(
             float(self.get_parameter('click_jog_duration_s').value), 0.05)
+        self.mouse_hold_timeout_s = max(
+            float(self.get_parameter('mouse_hold_timeout_s').value), 0.5)
         self.operator_ok_topic = str(self.get_parameter('operator_ok_topic').value).strip()
         self.ok_overlay_duration_s = max(
             float(self.get_parameter('ok_overlay_duration_s').value), 0.1)
@@ -65,6 +68,7 @@ class OperatorDrivePanel(Node):
         self.drive_enabled = False
         self.active_action = ''
         self.active_until_s = 0.0
+        self.mouse_hold_action = ''
         self.status_text = 'LOCKED'
         self.gui_available = False
         self.buttons = []
@@ -130,6 +134,7 @@ class OperatorDrivePanel(Node):
         if not self.drive_enabled:
             self.active_action = ''
             self.active_until_s = 0.0
+            self.mouse_hold_action = ''
 
         if not self.gui_available:
             return
@@ -142,7 +147,7 @@ class OperatorDrivePanel(Node):
             self.get_logger().error(f'drive panel failed; disabling GUI: {exc}')
             self.gui_available = False
             return
-        if key in (27, ord('q'), ord('Q')):
+        if key == 27:
             self.gui_available = False
             cv2.destroyWindow(self.window_title)
         elif key != -1:
@@ -237,10 +242,21 @@ class OperatorDrivePanel(Node):
             color, thickness, cv2.LINE_AA)
 
     def _mouse_callback(self, event, x, y, flags, param):
-        del flags, param
+        del param
         if event == cv2.EVENT_LBUTTONDOWN:
             action = self._button_at(x, y)
-            self._handle_click(action)
+            if action in ('forward', 'backward', 'left', 'right', 'rot_left', 'rot_right'):
+                self.mouse_hold_action = action
+                self._start_motion(action, 'HOLD', self.mouse_hold_timeout_s)
+            else:
+                self._handle_click(action)
+        elif event == cv2.EVENT_MOUSEMOVE and self.mouse_hold_action:
+            if flags & cv2.EVENT_FLAG_LBUTTON:
+                self.active_until_s = time.time() + self.mouse_hold_timeout_s
+            else:
+                self._stop_motion()
+        elif event == cv2.EVENT_LBUTTONUP and self.mouse_hold_action:
+            self._stop_motion()
 
     def _button_at(self, x, y):
         for button in self.buttons:
@@ -259,7 +275,7 @@ class OperatorDrivePanel(Node):
         elif action == 'ok':
             self._send_ok()
         elif action in ('forward', 'backward', 'left', 'right', 'rot_left', 'rot_right'):
-            self._start_motion(action, 'CLICK')
+            self._start_motion(action, 'CLICK', self.click_jog_duration_s)
 
     def _handle_key(self, key):
         key_low = key & 0xFF
@@ -273,7 +289,7 @@ class OperatorDrivePanel(Node):
             self._send_ok()
             return
 
-        arrow_actions = {
+        exact_key_actions = {
             82: 'forward',
             65362: 'forward',
             2490368: 'forward',
@@ -287,17 +303,35 @@ class OperatorDrivePanel(Node):
             65363: 'right',
             2555904: 'right',
         }
-        action = arrow_actions.get(key)
+        key_low_actions = {
+            82: 'forward',
+            84: 'backward',
+            81: 'left',
+            83: 'right',
+            ord('w'): 'forward',
+            ord('W'): 'forward',
+            ord('s'): 'backward',
+            ord('S'): 'backward',
+            ord('a'): 'left',
+            ord('A'): 'left',
+            ord('d'): 'right',
+            ord('D'): 'right',
+            ord('q'): 'rot_left',
+            ord('Q'): 'rot_left',
+            ord('e'): 'rot_right',
+            ord('E'): 'rot_right',
+        }
+        action = exact_key_actions.get(key) or key_low_actions.get(key_low)
         if action is not None:
-            self._start_motion(action, 'KEY')
+            self._start_motion(action, 'KEY', self.click_jog_duration_s)
 
-    def _start_motion(self, action, source):
+    def _start_motion(self, action, source, duration_s):
         if not self.drive_enabled:
             self.status_text = 'LOCKED - CLICK DRIVE LOCKED FIRST'
             self._stop_motion()
             return
         self.active_action = action
-        self.active_until_s = time.time() + self.click_jog_duration_s
+        self.active_until_s = time.time() + max(float(duration_s), 0.05)
         self.status_text = f'{source} {action.upper()}'
         self.cmd_pub.publish(self._make_twist(action))
 
@@ -315,6 +349,7 @@ class OperatorDrivePanel(Node):
     def _stop_motion(self):
         self.active_action = ''
         self.active_until_s = 0.0
+        self.mouse_hold_action = ''
         if self.drive_enabled:
             self.status_text = 'DRIVE ON - STOPPED'
         self.cmd_pub.publish(Twist())
