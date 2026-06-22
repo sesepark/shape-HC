@@ -32,7 +32,7 @@ class WristDepthOverlay(Node):
         self.declare_parameter('subscribe_base_image', False)
         self.declare_parameter('publish_raw_overlay', False)
         self.declare_parameter('publish_base_compressed', False)
-        self.declare_parameter('base_compressed_fps', 6.0)
+        self.declare_parameter('base_compressed_fps', 5.0)
         self.declare_parameter('base_compressed_jpeg_quality', 60)
         self.declare_parameter('publish_metrics', True)
         self.declare_parameter('publish_fps', 30.0)

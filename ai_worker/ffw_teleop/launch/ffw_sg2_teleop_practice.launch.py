@@ -136,7 +136,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'publish_base_compressed',
             default_value='false'),
-        DeclareLaunchArgument('base_compressed_fps', default_value='6.0'),
+        DeclareLaunchArgument('base_compressed_fps', default_value='5.0'),
         DeclareLaunchArgument('base_compressed_jpeg_quality', default_value='60'),
         DeclareLaunchArgument('right_wrist_start_delay_s', default_value='8.0'),
         DeclareLaunchArgument('start_bandwidth_monitor', default_value='true'),

@@ -424,10 +424,10 @@ def generate_launch_description():
             default_value=wrist_high_value('480,270,30', '640,480,30')),
         DeclareLaunchArgument(
             'left_color_profile',
-            default_value=wrist_high_value('424,240,6', '640,480,30')),
+            default_value=wrist_high_value('848,480,5', '640,480,30')),
         DeclareLaunchArgument(
             'right_color_profile',
-            default_value=wrist_high_value('424,240,6', '640,480,30')),
+            default_value=wrist_high_value('848,480,5', '640,480,30')),
         DeclareLaunchArgument('left_wrist_serial_no', default_value=left_wrist_serial_no),
         DeclareLaunchArgument('right_wrist_serial_no', default_value=right_wrist_serial_no),
         DeclareLaunchArgument(
@@ -483,7 +483,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'publish_base_compressed',
             default_value='false'),
-        DeclareLaunchArgument('base_compressed_fps', default_value='6.0'),
+        DeclareLaunchArgument('base_compressed_fps', default_value='5.0'),
         DeclareLaunchArgument('base_compressed_jpeg_quality', default_value='60'),
         DeclareLaunchArgument('publish_metrics', default_value='true'),
         DeclareLaunchArgument(

@@ -302,7 +302,7 @@ def generate_launch_description():
         DeclareLaunchArgument('mission_keyboard_drive_enabled', default_value='false'),
         DeclareLaunchArgument(
             'start_cmd_vel_mux',
-            default_value='false'),
+            default_value='true'),
         DeclareLaunchArgument('joystick_cmd_vel_topic', default_value='/teleop/joystick_cmd_vel'),
         DeclareLaunchArgument('keyboard_cmd_vel_topic', default_value='/teleop/keyboard_cmd_vel'),
         DeclareLaunchArgument(
