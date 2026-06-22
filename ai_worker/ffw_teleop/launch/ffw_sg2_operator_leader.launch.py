@@ -7,6 +7,7 @@ Runs the RViz operator view and the LG2 leader controller on the main PC.
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import LogInfo
+from launch.actions import TimerAction
 from launch.conditions import IfCondition
 from launch.substitutions import Command
 from launch.substitutions import FindExecutable
@@ -220,7 +221,7 @@ def generate_launch_description():
         leader_control,
         leader_spawner,
         rviz,
-        mission_control,
-        operator_image_viewer,
-        operator_layout,
+        TimerAction(period=1.5, actions=[mission_control]),
+        TimerAction(period=2.5, actions=[operator_image_viewer]),
+        TimerAction(period=4.0, actions=[operator_layout]),
     ])
