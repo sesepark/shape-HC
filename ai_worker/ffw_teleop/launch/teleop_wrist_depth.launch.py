@@ -17,7 +17,7 @@ def make_wrist_camera_launch(condition):
     return IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([
-                FindPackageShare('ffw_bringup'),
+                FindPackageShare('ffw_teleop'),
                 'launch',
                 'camera_realsense_teleop.launch.py',
             ]),
