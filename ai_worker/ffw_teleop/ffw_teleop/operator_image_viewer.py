@@ -21,13 +21,13 @@ DEFAULT_STREAMS = [
     'ZED|/teleop/zed/depth_assist/compressed',
     'L WRIST|/teleop/wrist_left/depth_assist/compressed',
     'R WRIST|/teleop/wrist_right/depth_assist/compressed',
-    'L COLOR|/teleop/wrist_left/color/compressed',
-    'R COLOR|/teleop/wrist_right/color/compressed',
+    'L COLOR|/camera_left/camera_left/color/image_raw/compressed',
+    'R COLOR|/camera_right/camera_right/color/image_raw/compressed',
 ]
 
 DEFAULT_MISSING_IMAGE_HINTS = [
-    'L COLOR|waiting for left wrist color stream',
-    'R COLOR|waiting for right wrist color stream',
+    'L COLOR|no left compressed color stream - check D405 USB/profile',
+    'R COLOR|no right compressed color stream - check D405 USB/profile',
 ]
 
 TOOLBAR_HEIGHT = 42

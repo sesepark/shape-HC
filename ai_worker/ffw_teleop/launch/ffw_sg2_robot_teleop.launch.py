@@ -21,6 +21,8 @@ def generate_launch_description():
     bandwidth_panel_topic = LaunchConfiguration('bandwidth_panel_topic')
     right_wrist_start_delay_s = LaunchConfiguration('right_wrist_start_delay_s')
     wrist_high_profile = LaunchConfiguration('wrist_high_profile')
+    base_compressed_fps = LaunchConfiguration('base_compressed_fps')
+    base_compressed_jpeg_quality = LaunchConfiguration('base_compressed_jpeg_quality')
 
     robot_teleop = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -41,6 +43,8 @@ def generate_launch_description():
             'bandwidth_usb_available_mbps': bandwidth_usb_available_mbps,
             'bandwidth_panel_topic': bandwidth_panel_topic,
             'right_wrist_start_delay_s': right_wrist_start_delay_s,
+            'base_compressed_fps': base_compressed_fps,
+            'base_compressed_jpeg_quality': base_compressed_jpeg_quality,
         }.items(),
     )
 
@@ -52,5 +56,7 @@ def generate_launch_description():
             'bandwidth_panel_topic', default_value='/teleop/bandwidth_monitor/compressed'),
         DeclareLaunchArgument('right_wrist_start_delay_s', default_value='8.0'),
         DeclareLaunchArgument('wrist_high_profile', default_value='false'),
+        DeclareLaunchArgument('base_compressed_fps', default_value='6.0'),
+        DeclareLaunchArgument('base_compressed_jpeg_quality', default_value='60'),
         robot_teleop,
     ])

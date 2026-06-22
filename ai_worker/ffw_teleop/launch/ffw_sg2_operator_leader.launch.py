@@ -302,13 +302,7 @@ def generate_launch_description():
         DeclareLaunchArgument('mission_keyboard_drive_enabled', default_value='false'),
         DeclareLaunchArgument(
             'start_cmd_vel_mux',
-            default_value=PythonExpression([
-                "'true' if '",
-                LaunchConfiguration('start_operator_drive_panel'),
-                "'.lower() == 'true' or '",
-                LaunchConfiguration('mission_keyboard_drive_enabled'),
-                "'.lower() == 'true' else 'false'",
-            ])),
+            default_value='false'),
         DeclareLaunchArgument('joystick_cmd_vel_topic', default_value='/teleop/joystick_cmd_vel'),
         DeclareLaunchArgument('keyboard_cmd_vel_topic', default_value='/teleop/keyboard_cmd_vel'),
         DeclareLaunchArgument(
@@ -327,12 +321,12 @@ def generate_launch_description():
             ])),
         DeclareLaunchArgument(
             'cmd_vel_mux_status_topic', default_value='/teleop/cmd_vel_mux/status'),
-        DeclareLaunchArgument('keyboard_linear_x_mps', default_value='0.1666667'),
-        DeclareLaunchArgument('keyboard_linear_y_mps', default_value='0.1666667'),
+        DeclareLaunchArgument('keyboard_linear_x_mps', default_value='0.10'),
+        DeclareLaunchArgument('keyboard_linear_y_mps', default_value='0.10'),
         DeclareLaunchArgument('keyboard_angular_z_radps', default_value='0.25'),
         DeclareLaunchArgument('keyboard_publish_hz', default_value='30.0'),
         DeclareLaunchArgument('keyboard_key_timeout_s', default_value='0.35'),
-        DeclareLaunchArgument('mouse_hold_timeout_s', default_value='6.0'),
+        DeclareLaunchArgument('mouse_hold_timeout_s', default_value='0.75'),
         DeclareLaunchArgument('keyboard_stale_timeout_s', default_value='0.20'),
         DeclareLaunchArgument('joystick_stale_timeout_s', default_value='0.30'),
         DeclareLaunchArgument('operator_ok_topic', default_value='/teleop/operator_ok'),

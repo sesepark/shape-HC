@@ -108,8 +108,6 @@ protected:
     const std::string & sensor_name,
     bool swerve_mode,
     const JoystickValues & joystick_values) const;
-  std::vector<double> current_positions_for_joints(
-    const std::vector<std::string> & controlled_joints) const;
   void publish_joint_trajectory(
     const std::vector<std::string> & controlled_joints,
     const std::vector<double> & positions,
@@ -126,6 +124,7 @@ protected:
   std::vector<std::vector<std::reference_wrapper<hardware_interface::LoanedStateInterface>>>
   joint_state_interface_;
   sensor_msgs::msg::JointState current_joint_states_;
+  bool was_active_ = false;  // Track previous sensorxel_joy state
   bool has_joint_states_ = false;  // Track if joint states have been received
 
   std::map<std::string, std::vector<std::string>> sensor_controlled_joints_;

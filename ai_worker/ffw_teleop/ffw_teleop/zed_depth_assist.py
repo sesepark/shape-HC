@@ -76,6 +76,7 @@ class ZedDepthAssist(Node):
         self.declare_parameter('near_hand_radius_m', 0.35)
         self.declare_parameter('max_objects_per_hand', 3)
         self.declare_parameter('component_min_area_px', 80.0)
+        self.declare_parameter('enable_near_hand_objects', False)
 
         self.depth_topic = str(self.get_parameter('depth_topic').value).strip()
         self.base_image_topic = str(self.get_parameter('base_image_topic').value).strip()
@@ -131,6 +132,8 @@ class ZedDepthAssist(Node):
         self.max_objects_per_hand = max(int(self.get_parameter('max_objects_per_hand').value), 1)
         self.component_min_area_px = max(
             float(self.get_parameter('component_min_area_px').value), 1.0)
+        self.enable_near_hand_objects = self._as_bool(
+            self.get_parameter('enable_near_hand_objects').value)
 
         self.publish_period_ns = int(1_000_000_000 / self.publish_fps)
         self.last_publish_time = None
@@ -407,7 +410,8 @@ class ZedDepthAssist(Node):
         height, width = shape[:2]
         return 0 <= pixel[0] < width and 0 <= pixel[1] < height
 
-    def _collect_arm_projection(self, camera_frame, depth_msg, intrinsics, depth_shape):
+    def _collect_arm_projection(
+            self, camera_frame, depth_msg, intrinsics, depth_shape, include_links=True):
         sides = {
             'left': {
                 'label': 'L',
@@ -428,7 +432,7 @@ class ZedDepthAssist(Node):
                 camera_frame, config['hand_frames'], depth_msg.header.stamp)
             hand_pixel = self._project_point(hand_point, intrinsics)
             link_draw = []
-            if hand_point is not None:
+            if hand_point is not None and include_links:
                 for frame in config['links']:
                     point = self._lookup_link_point(camera_frame, frame, depth_msg.header.stamp)
                     pixel = self._project_point(point, intrinsics)
@@ -579,13 +583,15 @@ class ZedDepthAssist(Node):
                 'status_text': 'WAITING CAMERA_INFO',
                 'projections': {},
                 'robot_mask': np.zeros(depth_m.shape, dtype=bool),
+                'enable_near_hand_objects': self.enable_near_hand_objects,
             }
 
         camera_candidates = self._camera_frame_candidates(depth_msg)
         last_error = ''
         for camera_frame in camera_candidates:
             projections = self._collect_arm_projection(
-                camera_frame, depth_msg, intrinsics, depth_m.shape)
+                camera_frame, depth_msg, intrinsics, depth_m.shape,
+                include_links=self.enable_near_hand_objects)
             left_ok = projections['left']['hand_point'] is not None
             right_ok = projections['right']['hand_point'] is not None
             if left_ok or right_ok:
@@ -601,15 +607,25 @@ class ZedDepthAssist(Node):
                 'status_text': 'WAITING TF',
                 'projections': {},
                 'robot_mask': np.zeros(depth_m.shape, dtype=bool),
+                'enable_near_hand_objects': self.enable_near_hand_objects,
             }
 
-        robot_mask = self._draw_robot_mask(depth_m.shape, projections)
-        valid = self._valid_mask(depth_m)
+        if self.enable_near_hand_objects:
+            robot_mask = self._draw_robot_mask(depth_m.shape, projections)
+            valid = self._valid_mask(depth_m)
+        else:
+            robot_mask = np.zeros(depth_m.shape, dtype=bool)
+            valid = None
         hands = {}
         draw_objects = {}
         for side, projection in projections.items():
-            objects, object_mask, object_candidate_count = self._objects_near_hand(
-                projection, depth_m, valid, robot_mask, intrinsics)
+            if self.enable_near_hand_objects:
+                objects, object_mask, object_candidate_count = self._objects_near_hand(
+                    projection, depth_m, valid, robot_mask, intrinsics)
+            else:
+                objects = []
+                object_mask = np.zeros(depth_m.shape, dtype=bool)
+                object_candidate_count = 0
             nearest = objects[0] if objects else None
             hand_point = projection.get('hand_point')
             hand_depth = None
@@ -653,6 +669,7 @@ class ZedDepthAssist(Node):
             'projections': projections,
             'robot_mask': robot_mask,
             'objects': draw_objects,
+            'enable_near_hand_objects': self.enable_near_hand_objects,
         }
         return metrics, draw
 
@@ -806,60 +823,63 @@ class ZedDepthAssist(Node):
             return image
 
         projections = draw.get('projections') or {}
-        for side in ('left', 'right'):
-            projection = projections.get(side)
-            if not projection:
-                continue
-            color = projection['color']
-            visible = [
-                item['pixel'] for item in projection.get('links', [])
-                if item.get('visible')
-            ]
-            for p0, p1 in zip(visible, visible[1:]):
-                cv2.line(image, p0, p1, color, 4, cv2.LINE_AA)
-            for point in visible:
-                cv2.circle(image, point, 5, color, -1, cv2.LINE_AA)
-            if projection.get('hand_visible'):
-                hand_pixel = projection['hand_pixel']
-                cv2.circle(image, hand_pixel, self.hand_roi_radius_px, color, 1, cv2.LINE_AA)
-                cv2.circle(image, hand_pixel, 9, color, -1, cv2.LINE_AA)
-                cv2.circle(image, hand_pixel, 13, (255, 255, 255), 1, cv2.LINE_AA)
+        show_near_hand_objects = bool(draw.get('enable_near_hand_objects', False))
+        if show_near_hand_objects:
+            for side in ('left', 'right'):
+                projection = projections.get(side)
+                if not projection:
+                    continue
+                color = projection['color']
+                visible = [
+                    item['pixel'] for item in projection.get('links', [])
+                    if item.get('visible')
+                ]
+                for p0, p1 in zip(visible, visible[1:]):
+                    cv2.line(image, p0, p1, color, 4, cv2.LINE_AA)
+                for point in visible:
+                    cv2.circle(image, point, 5, color, -1, cv2.LINE_AA)
+                if projection.get('hand_visible'):
+                    hand_pixel = projection['hand_pixel']
+                    cv2.circle(image, hand_pixel, self.hand_roi_radius_px, color, 1, cv2.LINE_AA)
+                    cv2.circle(image, hand_pixel, 9, color, -1, cv2.LINE_AA)
+                    cv2.circle(image, hand_pixel, 13, (255, 255, 255), 1, cv2.LINE_AA)
 
-        object_draw = draw.get('objects') or {}
-        for side, data in object_draw.items():
-            color = (0, 255, 255) if side == 'left' else (0, 180, 255)
-            for index, obj in enumerate(data.get('objects') or []):
-                contour = obj.get('contour')
-                if contour is not None:
-                    thickness = 3 if index == 0 else 1
-                    cv2.drawContours(image, [contour], -1, color, thickness, cv2.LINE_AA)
-                center = (obj.get('cx_px'), obj.get('cy_px'))
-                if center[0] is not None and center[1] is not None:
-                    cv2.circle(image, center, 5, color, -1, cv2.LINE_AA)
-                    label = 'L' if side == 'left' else 'R'
-                    self._put_text(
-                        image,
-                        f'{label} {self._format_delta(obj.get("depth_delta_m"))}m',
-                        (center[0] + 8, max(center[1] - 8, 98)),
-                        0.46,
-                    )
+            object_draw = draw.get('objects') or {}
+            for side, data in object_draw.items():
+                color = (0, 255, 255) if side == 'left' else (0, 180, 255)
+                for index, obj in enumerate(data.get('objects') or []):
+                    contour = obj.get('contour')
+                    if contour is not None:
+                        thickness = 3 if index == 0 else 1
+                        cv2.drawContours(image, [contour], -1, color, thickness, cv2.LINE_AA)
+                    center = (obj.get('cx_px'), obj.get('cy_px'))
+                    if center[0] is not None and center[1] is not None:
+                        cv2.circle(image, center, 5, color, -1, cv2.LINE_AA)
+                        label = 'L' if side == 'left' else 'R'
+                        self._put_text(
+                            image,
+                            f'{label} {self._format_delta(obj.get("depth_delta_m"))}m',
+                            (center[0] + 8, max(center[1] - 8, 98)),
+                            0.46,
+                        )
 
         hands = metrics.get('hands') or {}
         left = hands.get('left') or {}
         right = hands.get('right') or {}
         compare = metrics.get('gripper_depth_compare') or {}
         self._draw_hand_depth_header(image, left, right, compare)
-        left_obj = left.get('nearest_object') or {}
-        right_obj = right.get('nearest_object') or {}
-        self._put_text(
-            image,
-            f'L OBJ-HAND {self._format_delta(left_obj.get("depth_delta_m"))}m '
-            f'3D {self._format_depth(left_obj.get("distance_3d_m"))}m   '
-            f'R OBJ-HAND {self._format_delta(right_obj.get("depth_delta_m"))}m '
-            f'3D {self._format_depth(right_obj.get("distance_3d_m"))}m',
-            (8, 61),
-            0.50,
-        )
+        if show_near_hand_objects:
+            left_obj = left.get('nearest_object') or {}
+            right_obj = right.get('nearest_object') or {}
+            self._put_text(
+                image,
+                f'L OBJ-HAND {self._format_delta(left_obj.get("depth_delta_m"))}m '
+                f'3D {self._format_depth(left_obj.get("distance_3d_m"))}m   '
+                f'R OBJ-HAND {self._format_delta(right_obj.get("depth_delta_m"))}m '
+                f'3D {self._format_depth(right_obj.get("distance_3d_m"))}m',
+                (8, 61),
+                0.50,
+            )
         return image
 
     def _put_text(self, image, text, origin, scale):

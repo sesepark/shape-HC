@@ -31,11 +31,11 @@ class OperatorDrivePanel(Node):
         self.declare_parameter('show_hz', 30.0)
         self.declare_parameter('keyboard_cmd_vel_topic', '/teleop/keyboard_cmd_vel')
         self.declare_parameter('keyboard_enabled_topic', '/teleop/keyboard_drive/enabled')
-        self.declare_parameter('keyboard_linear_x_mps', 0.1666667)
-        self.declare_parameter('keyboard_linear_y_mps', 0.1666667)
+        self.declare_parameter('keyboard_linear_x_mps', 0.10)
+        self.declare_parameter('keyboard_linear_y_mps', 0.10)
         self.declare_parameter('keyboard_angular_z_radps', 0.25)
         self.declare_parameter('click_jog_duration_s', 0.25)
-        self.declare_parameter('mouse_hold_timeout_s', 6.0)
+        self.declare_parameter('mouse_hold_timeout_s', 0.75)
         self.declare_parameter('operator_ok_topic', '/teleop/operator_ok')
         self.declare_parameter('ok_overlay_duration_s', 3.0)
         self.declare_parameter('headless_ok', True)
@@ -69,6 +69,7 @@ class OperatorDrivePanel(Node):
         self.active_action = ''
         self.active_until_s = 0.0
         self.mouse_hold_action = ''
+        self.mouse_is_down = False
         self.status_text = 'LOCKED'
         self.gui_available = False
         self.buttons = []
@@ -110,6 +111,12 @@ class OperatorDrivePanel(Node):
             return value.strip().lower() in ('1', 'true', 'yes', 'on')
         return bool(value)
 
+    def _mux_connected(self):
+        return (
+            self.count_subscribers(self.keyboard_cmd_vel_topic) > 0 and
+            self.count_subscribers(self.keyboard_enabled_topic) > 0
+        )
+
     def _init_window(self):
         if not os.environ.get('DISPLAY') and self.headless_ok:
             self.get_logger().warn('DISPLAY is not set; drive panel running headless')
@@ -127,6 +134,8 @@ class OperatorDrivePanel(Node):
 
     def _tick(self):
         now_s = time.time()
+        if self.mouse_is_down and self.mouse_hold_action and self.drive_enabled:
+            self.active_until_s = now_s + self.mouse_hold_timeout_s
         if self.active_action and now_s > self.active_until_s:
             self._stop_motion()
         if self.drive_enabled and self.active_action:
@@ -172,9 +181,16 @@ class OperatorDrivePanel(Node):
         scale = min(width / PANEL_WIDTH, height / PANEL_HEIGHT)
         image = np.full((height, width, 3), (24, 26, 30), dtype=np.uint8)
         self.buttons = []
+        mux_connected = self._mux_connected()
         enabled_color = (42, 138, 72) if self.drive_enabled else (70, 58, 58)
-        self._button(image, 'toggle', 'DRIVE ON' if self.drive_enabled else 'DRIVE LOCKED',
-                     (24, 24, width - 48, 56), enabled_color, scale)
+        if self.drive_enabled:
+            drive_label = 'DRIVE ON'
+        elif mux_connected:
+            drive_label = 'DRIVE LOCKED'
+        else:
+            drive_label = 'DRIVE LOCKED / MUX OFF'
+        self._button(image, 'toggle', drive_label, (24, 24, width - 48, 56),
+                     enabled_color, scale)
         self._put_text(
             image,
             f'status: {self.status_text}',
@@ -183,13 +199,10 @@ class OperatorDrivePanel(Node):
             (220, 226, 232),
             1,
         )
-        mux_connected = (
-            self.count_subscribers(self.keyboard_cmd_vel_topic) > 0 and
-            self.count_subscribers(self.keyboard_enabled_topic) > 0
-        )
+        mux_text = 'connected' if mux_connected else 'OFF - launch start_cmd_vel_mux:=true'
         self._put_text(
             image,
-            f'active: {self.active_action or "--"}    mux: {"connected" if mux_connected else "not connected"}',
+            f'active: {self.active_action or "--"}    mux: {mux_text}',
             (28, 130),
             0.44 * scale,
             (120, 205, 145) if mux_connected else (95, 170, 240),
@@ -247,11 +260,13 @@ class OperatorDrivePanel(Node):
             action = self._button_at(x, y)
             if action in ('forward', 'backward', 'left', 'right', 'rot_left', 'rot_right'):
                 self.mouse_hold_action = action
+                self.mouse_is_down = True
                 self._start_motion(action, 'HOLD', self.mouse_hold_timeout_s)
             else:
                 self._handle_click(action)
         elif event == cv2.EVENT_MOUSEMOVE and self.mouse_hold_action:
             if flags & cv2.EVENT_FLAG_LBUTTON:
+                self.mouse_is_down = True
                 self.active_until_s = time.time() + self.mouse_hold_timeout_s
             else:
                 self._stop_motion()
@@ -330,12 +345,22 @@ class OperatorDrivePanel(Node):
             self.status_text = 'LOCKED - CLICK DRIVE LOCKED FIRST'
             self._stop_motion()
             return
+        if not self._mux_connected():
+            self.status_text = 'LOCKED / MUX OFF'
+            self._set_drive_enabled(False)
+            return
         self.active_action = action
         self.active_until_s = time.time() + max(float(duration_s), 0.05)
         self.status_text = f'{source} {action.upper()}'
         self.cmd_pub.publish(self._make_twist(action))
 
     def _set_drive_enabled(self, enabled):
+        if enabled and not self._mux_connected():
+            self.drive_enabled = False
+            self._stop_motion()
+            self._publish_enabled()
+            self.status_text = 'LOCKED / MUX OFF'
+            return
         self.drive_enabled = bool(enabled)
         self._stop_motion()
         self._publish_enabled()
@@ -350,6 +375,7 @@ class OperatorDrivePanel(Node):
         self.active_action = ''
         self.active_until_s = 0.0
         self.mouse_hold_action = ''
+        self.mouse_is_down = False
         if self.drive_enabled:
             self.status_text = 'DRIVE ON - STOPPED'
         self.cmd_pub.publish(Twist())
