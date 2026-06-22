@@ -68,6 +68,8 @@ class OperatorDrivePanel(Node):
         self.status_text = 'LOCKED'
         self.gui_available = False
         self.buttons = []
+        self.draw_width = self.window_width
+        self.draw_height = self.window_height
 
         drive_qos = QoSProfile(depth=1)
         drive_qos.reliability = ReliabilityPolicy.BEST_EFFORT
@@ -131,6 +133,7 @@ class OperatorDrivePanel(Node):
 
         if not self.gui_available:
             return
+        self._update_draw_size()
         frame = self._draw_panel()
         try:
             cv2.imshow(self.window_title, frame)
@@ -143,52 +146,88 @@ class OperatorDrivePanel(Node):
             self.gui_available = False
             cv2.destroyWindow(self.window_title)
 
+    def _update_draw_size(self):
+        if not hasattr(cv2, 'getWindowImageRect'):
+            self.draw_width = self.window_width
+            self.draw_height = self.window_height
+            return
+        try:
+            _, _, width, height = cv2.getWindowImageRect(self.window_title)
+        except cv2.error:
+            width = self.window_width
+            height = self.window_height
+        self.draw_width = max(int(width), PANEL_WIDTH)
+        self.draw_height = max(int(height), PANEL_HEIGHT)
+
     def _draw_panel(self):
-        image = np.full((self.window_height, self.window_width, 3), (24, 26, 30), dtype=np.uint8)
+        width = self.draw_width
+        height = self.draw_height
+        scale = min(width / PANEL_WIDTH, height / PANEL_HEIGHT)
+        image = np.full((height, width, 3), (24, 26, 30), dtype=np.uint8)
         self.buttons = []
         enabled_color = (42, 138, 72) if self.drive_enabled else (70, 58, 58)
         self._button(image, 'toggle', 'DRIVE ON' if self.drive_enabled else 'DRIVE LOCKED',
-                     (24, 24, self.window_width - 48, 56), enabled_color)
+                     (24, 24, width - 48, 56), enabled_color, scale)
         self._put_text(
             image,
-            f'active: {self.active_action or "--"}',
+            f'status: {self.status_text}',
             (28, 104),
-            0.56,
+            0.56 * scale,
             (220, 226, 232),
+            1,
+        )
+        mux_connected = (
+            self.count_subscribers(self.keyboard_cmd_vel_topic) > 0 and
+            self.count_subscribers(self.keyboard_enabled_topic) > 0
+        )
+        self._put_text(
+            image,
+            f'active: {self.active_action or "--"}    mux: {"connected" if mux_connected else "not connected"}',
+            (28, 130),
+            0.44 * scale,
+            (120, 205, 145) if mux_connected else (95, 170, 240),
             1,
         )
         self._put_text(
             image,
             f'jog {self.keyboard_linear_x_mps:.2f}m/s {self.keyboard_angular_z_radps:.2f}rad/s',
-            (28, 130),
-            0.46,
+            (28, 154),
+            0.44 * scale,
             (178, 186, 196),
             1,
         )
 
-        cx = self.window_width // 2
-        self._button(image, 'forward', 'FORWARD', (cx - 70, 156, 140, 58), (54, 68, 88))
-        self._button(image, 'left', 'LEFT', (cx - 164, 228, 116, 58), (54, 68, 88))
-        self._button(image, 'stop', 'STOP', (cx - 58, 224, 116, 66), (60, 46, 46))
-        self._button(image, 'right', 'RIGHT', (cx + 48, 228, 116, 58), (54, 68, 88))
-        self._button(image, 'backward', 'BACK', (cx - 70, 302, 140, 58), (54, 68, 88))
-        self._button(image, 'rot_left', 'ROT L', (42, 382, 130, 52), (48, 74, 72))
-        self._button(image, 'rot_right', 'ROT R', (self.window_width - 172, 382, 130, 52),
-                     (48, 74, 72))
-        self._button(image, 'ok', 'OK SIGN', (42, 452, self.window_width - 84, 48), (42, 122, 72))
+        cx = width // 2
+        button_color = (54, 68, 88) if self.drive_enabled else (48, 50, 56)
+        self._button(image, 'forward', 'FORWARD', (cx - 70, 176, 140, 58), button_color, scale)
+        self._button(image, 'left', 'LEFT', (cx - 164, 248, 116, 58), button_color, scale)
+        self._button(image, 'stop', 'STOP', (cx - 58, 244, 116, 66), (60, 46, 46), scale)
+        self._button(image, 'right', 'RIGHT', (cx + 48, 248, 116, 58), button_color, scale)
+        self._button(image, 'backward', 'BACK', (cx - 70, 322, 140, 58), button_color, scale)
+        self._button(image, 'rot_left', 'ROT L', (42, 402, 130, 52),
+                     (48, 74, 72) if self.drive_enabled else (48, 50, 56), scale)
+        self._button(image, 'rot_right', 'ROT R', (width - 172, 402, 130, 52),
+                     (48, 74, 72) if self.drive_enabled else (48, 50, 56), scale)
+        self._button(image, 'ok', 'OK SIGN', (42, height - 68, width - 84, 48),
+                     (42, 122, 72), scale)
         return image
 
-    def _button(self, image, action, label, rect, color):
+    def _button(self, image, action, label, rect, color, scale=1.0):
         x, y, width, height = rect
+        x = int(np.clip(x, 4, image.shape[1] - 8))
+        y = int(np.clip(y, 4, image.shape[0] - 8))
+        width = int(np.clip(width, 16, image.shape[1] - x - 4))
+        height = int(np.clip(height, 16, image.shape[0] - y - 4))
         if action == self.active_action:
             color = tuple(min(int(channel) + 42, 255) for channel in color)
         cv2.rectangle(image, (x, y), (x + width, y + height), color, -1)
         cv2.rectangle(image, (x, y), (x + width, y + height), (160, 168, 180), 1)
-        size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.62, 2)
+        text_scale = max(0.46, 0.62 * scale)
+        size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, text_scale, 2)
         tx = x + max((width - size[0]) // 2, 4)
         ty = y + (height + size[1]) // 2
-        self._put_text(image, label, (tx, ty), 0.62, (244, 246, 248), 2)
-        self.buttons.append({'action': action, 'rect': rect})
+        self._put_text(image, label, (tx, ty), text_scale, (244, 246, 248), 2)
+        self.buttons.append({'action': action, 'rect': (x, y, width, height)})
 
     def _put_text(self, image, text, origin, scale, color, thickness):
         cv2.putText(
@@ -219,11 +258,12 @@ class OperatorDrivePanel(Node):
             self._send_ok()
         elif action in ('forward', 'backward', 'left', 'right', 'rot_left', 'rot_right'):
             if not self.drive_enabled:
-                self.status_text = 'LOCKED'
+                self.status_text = 'LOCKED - CLICK DRIVE LOCKED FIRST'
                 self._stop_motion()
                 return
             self.active_action = action
             self.active_until_s = time.time() + self.click_jog_duration_s
+            self.status_text = f'JOG {action.upper()}'
             self.cmd_pub.publish(self._make_twist(action))
 
     def _set_drive_enabled(self, enabled):
@@ -240,6 +280,8 @@ class OperatorDrivePanel(Node):
     def _stop_motion(self):
         self.active_action = ''
         self.active_until_s = 0.0
+        if self.drive_enabled:
+            self.status_text = 'DRIVE ON - STOPPED'
         self.cmd_pub.publish(Twist())
 
     def _make_twist(self, action):

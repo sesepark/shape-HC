@@ -31,6 +31,7 @@ class WristDepthOverlay(Node):
         self.declare_parameter('feedback_visual_mode', 'assist')
         self.declare_parameter('publish_raw_overlay', False)
         self.declare_parameter('publish_base_compressed', False)
+        self.declare_parameter('base_compressed_fps', 15.0)
         self.declare_parameter('publish_metrics', True)
         self.declare_parameter('publish_fps', 30.0)
         self.declare_parameter('depth_scale', 0.001)
@@ -88,6 +89,8 @@ class WristDepthOverlay(Node):
             self.get_parameter('publish_raw_overlay').value)
         self.publish_base_compressed = self._as_bool(
             self.get_parameter('publish_base_compressed').value)
+        self.base_compressed_fps = max(
+            float(self.get_parameter('base_compressed_fps').value), 0.1)
         self.publish_metrics = self._as_bool(
             self.get_parameter('publish_metrics').value)
         self.publish_fps = max(float(self.get_parameter('publish_fps').value), 0.1)
@@ -135,7 +138,9 @@ class WristDepthOverlay(Node):
         self.band_alpha = float(np.clip(float(self.get_parameter('band_alpha').value), 0.0, 1.0))
         self.band_min_area_px = max(float(self.get_parameter('band_min_area_px').value), 0.0)
         self.publish_period_ns = int(1_000_000_000 / self.publish_fps)
+        self.base_compressed_period_ns = int(1_000_000_000 / self.base_compressed_fps)
         self.last_publish_time = None
+        self.last_base_compressed_publish_time = None
         self.last_warn_time = None
         self.latest_base_image = None
         self.latest_base_image_time = None
@@ -237,7 +242,8 @@ class WristDepthOverlay(Node):
         needs_base_compressed = (
             self.base_compressed_pub is not None and
             self._has_subscribers(self.base_compressed_topic) and
-            self._has_fresh_base_image(now)
+            self._has_fresh_base_image(now) and
+            self._base_compressed_due(now)
         )
         if not (needs_assist or needs_raw_overlay or needs_compressed_overlay or needs_base_compressed):
             return
@@ -248,6 +254,7 @@ class WristDepthOverlay(Node):
 
         if needs_base_compressed:
             self._publish_base_compressed_image(msg, base_image)
+            self.last_base_compressed_publish_time = now
 
         if needs_assist:
             assist = self._make_assist_image(depth_m, metrics, assist_draw, base_image)
@@ -573,6 +580,13 @@ class WristDepthOverlay(Node):
             return False
         age_s = (now - self.latest_base_image_time).nanoseconds / 1e9
         return self.base_image_timeout_s <= 0.0 or age_s <= self.base_image_timeout_s
+
+    def _base_compressed_due(self, now):
+        if self.last_base_compressed_publish_time is None:
+            return True
+        return (
+            now - self.last_base_compressed_publish_time
+        ).nanoseconds >= self.base_compressed_period_ns
 
     def _depth_grayscale_base(self, depth_shape):
         return np.zeros((depth_shape[0], depth_shape[1], 3), dtype=np.uint8)

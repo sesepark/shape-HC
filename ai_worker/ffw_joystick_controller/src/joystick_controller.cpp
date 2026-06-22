@@ -14,6 +14,7 @@
 
 #include <joystick_controller/joystick_controller.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <string>
 #include <stdexcept>
@@ -203,6 +204,30 @@ std::vector<double> JoystickController::calculate_joint_positions(
         sensor_jog_scale_.at(sensor_name);
       positions.push_back(new_position);
     }
+  }
+
+  return positions;
+}
+
+std::vector<double> JoystickController::current_positions_for_joints(
+  const std::vector<std::string> & controlled_joints) const
+{
+  std::vector<double> positions;
+  positions.reserve(controlled_joints.size());
+
+  for (const auto & joint_name : controlled_joints) {
+    auto it = std::find(current_joint_states_.name.begin(), current_joint_states_.name.end(),
+        joint_name);
+    if (it == current_joint_states_.name.end()) {
+      positions.push_back(0.0);
+      continue;
+    }
+    size_t index = std::distance(current_joint_states_.name.begin(), it);
+    if (index >= current_joint_states_.position.size()) {
+      positions.push_back(0.0);
+      continue;
+    }
+    positions.push_back(current_joint_states_.position[index]);
   }
 
   return positions;
@@ -444,35 +469,36 @@ controller_interface::return_type JoystickController::update(
     std::vector<double> normalized_values = read_and_normalize_sensor_values(sensor_idx);
 
     // Check if any joystick is active
-    bool any_sensorxel_joy_active = std::any_of(normalized_values.begin(), normalized_values.end(),
-        [](double value) {return std::abs(value) > 0.0;});
+    bool any_sensorxel_joy_active = false;
+    const size_t axis_count = std::min<size_t>(2, normalized_values.size());
+    for (size_t axis_idx = 0; axis_idx < axis_count; ++axis_idx) {
+      if (std::abs(normalized_values[axis_idx]) > 0.0) {
+        any_sensorxel_joy_active = true;
+        break;
+      }
+    }
 
     // Update joystick values
     update_joystick_values(sensor_name, normalized_values, joystick_values,
                           left_tact_switch_pressed, right_tact_switch_pressed);
 
-    // Update last active positions when joystick becomes inactive
-    if (was_active_ && !any_sensorxel_joy_active && !current_joint_states_.name.empty() &&
-      !controlled_joints.empty())
-    {
-      for (size_t i = 0; i < controlled_joints.size(); ++i) {
-        const auto & joint_name = controlled_joints[i];
-        auto it = std::find(current_joint_states_.name.begin(), current_joint_states_.name.end(),
-            joint_name);
-        if (it != current_joint_states_.name.end()) {
-          size_t index = std::distance(current_joint_states_.name.begin(), it);
-          if (i < last_active_positions.size()) {
-            last_active_positions[i] = current_joint_states_.position[index];
-          }
-        }
-      }
+    if (last_active_positions.size() != controlled_joints.size()) {
+      last_active_positions = current_positions_for_joints(controlled_joints);
     }
 
     // Publish joint trajectory
     if (!current_joint_states_.name.empty() && !controlled_joints.empty()) {
       std::vector<double> positions;
 
-      if (swerve_mode || any_sensorxel_joy_active) {
+      bool drive_joint_target = any_sensorxel_joy_active;
+      if (swerve_mode && sensor_name == constants::LEFT_JOYSTICK_NAME) {
+        drive_joint_target = false;
+      } else if (swerve_mode && sensor_name == constants::RIGHT_JOYSTICK_NAME) {
+        drive_joint_target = (
+          !normalized_values.empty() && std::abs(normalized_values[0]) > 0.0);
+      }
+
+      if (drive_joint_target) {
         positions = calculate_joint_positions(controlled_joints, normalized_values,
                                            sensor_name, swerve_mode, joystick_values);
         // Update last active positions with new positions
@@ -486,7 +512,6 @@ controller_interface::return_type JoystickController::update(
       publish_joint_trajectory(controlled_joints, positions, sensor_name);
     }
 
-    was_active_ = any_sensorxel_joy_active;
     sensorxel_joy_values_[sensor_idx] = normalized_values;
   }
 

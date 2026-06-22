@@ -77,6 +77,7 @@ def generate_launch_description():
             'overlay_fps': LaunchConfiguration('overlay_fps'),
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
             'publish_base_compressed': LaunchConfiguration('publish_base_compressed'),
+            'base_compressed_fps': LaunchConfiguration('base_compressed_fps'),
             'right_wrist_start_delay_s': LaunchConfiguration('right_wrist_start_delay_s'),
             'start_bandwidth_monitor': LaunchConfiguration('start_bandwidth_monitor'),
             'bandwidth_available_mbps': LaunchConfiguration('bandwidth_available_mbps'),
@@ -133,7 +134,8 @@ def generate_launch_description():
             default_value=profile_value('false', 'false', 'false', 'true')),
         DeclareLaunchArgument(
             'publish_base_compressed',
-            default_value=wrist_high_value('false', 'true')),
+            default_value='true'),
+        DeclareLaunchArgument('base_compressed_fps', default_value='15.0'),
         DeclareLaunchArgument('right_wrist_start_delay_s', default_value='3.0'),
         DeclareLaunchArgument('start_bandwidth_monitor', default_value='true'),
         DeclareLaunchArgument('bandwidth_available_mbps', default_value='350.0'),

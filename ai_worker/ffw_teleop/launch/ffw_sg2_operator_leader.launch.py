@@ -14,7 +14,9 @@ from launch.substitutions import Command
 from launch.substitutions import FindExecutable
 from launch.substitutions import LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution
+from launch.substitutions import PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
@@ -64,7 +66,9 @@ def generate_launch_description():
     joystick_cmd_vel_topic = LaunchConfiguration('joystick_cmd_vel_topic')
     keyboard_cmd_vel_topic = LaunchConfiguration('keyboard_cmd_vel_topic')
     keyboard_enabled_topic = LaunchConfiguration('keyboard_enabled_topic')
+    mission_keyboard_drive_enabled = LaunchConfiguration('mission_keyboard_drive_enabled')
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
+    leader_cmd_vel_topic = LaunchConfiguration('leader_cmd_vel_topic')
     cmd_vel_mux_status_topic = LaunchConfiguration('cmd_vel_mux_status_topic')
     keyboard_linear_x_mps = LaunchConfiguration('keyboard_linear_x_mps')
     keyboard_linear_y_mps = LaunchConfiguration('keyboard_linear_y_mps')
@@ -100,6 +104,15 @@ def generate_launch_description():
         'ffw_lg2_leader',
         leader_controller_config,
     ])
+    joystick_cmd_vel_override = ParameterFile(
+        PathJoinSubstitution([
+            FindPackageShare('ffw_bringup'),
+            'config',
+            'ffw_lg2_leader',
+            'ffw_lg2_leader_cmd_vel_override.yaml',
+        ]),
+        allow_substs=True,
+    )
 
     robot_description_content = ParameterValue(
         Command([
@@ -144,7 +157,7 @@ def generate_launch_description():
         package='controller_manager',
         executable='ros2_control_node',
         namespace=leader_namespace,
-        parameters=[robot_description, robot_controllers],
+        parameters=[robot_description, robot_controllers, joystick_cmd_vel_override],
         remappings=[
             ('~/robot_description', leader_robot_description_topic),
             ('robot_description', leader_robot_description_topic),
@@ -177,6 +190,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'profiles_config': mission_profiles_config,
+            'keyboard_drive_ui_enabled': mission_keyboard_drive_enabled,
             'keyboard_cmd_vel_topic': keyboard_cmd_vel_topic,
             'keyboard_enabled_topic': keyboard_enabled_topic,
             'keyboard_linear_x_mps': keyboard_linear_x_mps,
@@ -283,13 +297,33 @@ def generate_launch_description():
         DeclareLaunchArgument('rviz_gl_mode', default_value='native'),
         DeclareLaunchArgument('start_mission_control', default_value='true'),
         DeclareLaunchArgument('start_operator_image_viewer', default_value='true'),
-        DeclareLaunchArgument('start_operator_drive_panel', default_value='true'),
-        DeclareLaunchArgument('start_cmd_vel_mux', default_value='true'),
+        DeclareLaunchArgument('start_operator_drive_panel', default_value='false'),
+        DeclareLaunchArgument('mission_keyboard_drive_enabled', default_value='false'),
+        DeclareLaunchArgument(
+            'start_cmd_vel_mux',
+            default_value=PythonExpression([
+                "'true' if '",
+                LaunchConfiguration('start_operator_drive_panel'),
+                "'.lower() == 'true' or '",
+                LaunchConfiguration('mission_keyboard_drive_enabled'),
+                "'.lower() == 'true' else 'false'",
+            ])),
         DeclareLaunchArgument('joystick_cmd_vel_topic', default_value='/teleop/joystick_cmd_vel'),
         DeclareLaunchArgument('keyboard_cmd_vel_topic', default_value='/teleop/keyboard_cmd_vel'),
         DeclareLaunchArgument(
             'keyboard_enabled_topic', default_value='/teleop/keyboard_drive/enabled'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
+        DeclareLaunchArgument(
+            'leader_cmd_vel_topic',
+            default_value=PythonExpression([
+                "'",
+                LaunchConfiguration('joystick_cmd_vel_topic'),
+                "' if '",
+                LaunchConfiguration('start_cmd_vel_mux'),
+                "'.lower() == 'true' else '",
+                LaunchConfiguration('cmd_vel_topic'),
+                "'",
+            ])),
         DeclareLaunchArgument(
             'cmd_vel_mux_status_topic', default_value='/teleop/cmd_vel_mux/status'),
         DeclareLaunchArgument('keyboard_linear_x_mps', default_value='0.04'),

@@ -180,6 +180,7 @@ def generate_launch_description():
             'feedback_visual_mode': LaunchConfiguration('feedback_visual_mode'),
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
             'publish_base_compressed': LaunchConfiguration('publish_base_compressed'),
+            'base_compressed_fps': LaunchConfiguration('base_compressed_fps'),
             'publish_metrics': LaunchConfiguration('publish_metrics'),
             'publish_fps': LaunchConfiguration('overlay_fps'),
             'depth_scale': LaunchConfiguration('depth_scale'),
@@ -237,6 +238,7 @@ def generate_launch_description():
             'feedback_visual_mode': LaunchConfiguration('feedback_visual_mode'),
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
             'publish_base_compressed': LaunchConfiguration('publish_base_compressed'),
+            'base_compressed_fps': LaunchConfiguration('base_compressed_fps'),
             'publish_metrics': LaunchConfiguration('publish_metrics'),
             'publish_fps': LaunchConfiguration('overlay_fps'),
             'depth_scale': LaunchConfiguration('depth_scale'),
@@ -447,7 +449,8 @@ def generate_launch_description():
             default_value=profile_value('false', 'false', 'false', 'true')),
         DeclareLaunchArgument(
             'publish_base_compressed',
-            default_value=wrist_high_value('false', 'true')),
+            default_value='true'),
+        DeclareLaunchArgument('base_compressed_fps', default_value='15.0'),
         DeclareLaunchArgument('publish_metrics', default_value='true'),
         DeclareLaunchArgument(
             'overlay_fps',

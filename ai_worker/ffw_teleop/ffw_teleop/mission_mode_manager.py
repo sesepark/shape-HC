@@ -88,6 +88,7 @@ class MissionModeManager(Node):
         self.declare_parameter('gui_enabled', True)
         self.declare_parameter('layout_command_topic', '/teleop/operator_layout/command')
         self.declare_parameter('layout_status_topic', '/teleop/operator_layout/status')
+        self.declare_parameter('keyboard_drive_ui_enabled', False)
         self.declare_parameter('keyboard_cmd_vel_topic', '/teleop/keyboard_cmd_vel')
         self.declare_parameter('keyboard_enabled_topic', '/teleop/keyboard_drive/enabled')
         self.declare_parameter('keyboard_linear_x_mps', 0.04)
@@ -113,6 +114,8 @@ class MissionModeManager(Node):
             self.get_parameter('layout_command_topic').value).strip()
         self.layout_status_topic = str(
             self.get_parameter('layout_status_topic').value).strip()
+        self.keyboard_drive_ui_enabled = self._as_bool(
+            self.get_parameter('keyboard_drive_ui_enabled').value)
         self.keyboard_cmd_vel_topic = str(
             self.get_parameter('keyboard_cmd_vel_topic').value).strip()
         self.keyboard_enabled_topic = str(
@@ -156,10 +159,13 @@ class MissionModeManager(Node):
             String, self.mission_state_topic, state_qos)
         self.panel_pub = self.create_publisher(
             CompressedImage, self.mission_panel_topic, 1)
-        self.keyboard_cmd_pub = self.create_publisher(
-            Twist, self.keyboard_cmd_vel_topic, drive_qos)
-        self.keyboard_enabled_pub = self.create_publisher(
-            Bool, self.keyboard_enabled_topic, state_qos)
+        self.keyboard_cmd_pub = None
+        self.keyboard_enabled_pub = None
+        if self.keyboard_drive_ui_enabled:
+            self.keyboard_cmd_pub = self.create_publisher(
+                Twist, self.keyboard_cmd_vel_topic, drive_qos)
+            self.keyboard_enabled_pub = self.create_publisher(
+                Bool, self.keyboard_enabled_topic, state_qos)
         self.operator_ok_pub = self.create_publisher(String, self.operator_ok_topic, 10)
         self.operator_ok_sub = self.create_subscription(
             String, self.operator_ok_topic, self._operator_ok_callback, 10)
@@ -174,11 +180,14 @@ class MissionModeManager(Node):
             self.layout_status_sub = self.create_subscription(
                 String, self.layout_status_topic, self._layout_status_callback, 10)
         self.timer = self.create_timer(1.0 / publish_hz, self._publish_state)
-        self.keyboard_timer = self.create_timer(
-            1.0 / keyboard_publish_hz, self._publish_keyboard_command)
+        self.keyboard_timer = None
+        if self.keyboard_drive_ui_enabled:
+            self.keyboard_timer = self.create_timer(
+                1.0 / keyboard_publish_hz, self._publish_keyboard_command)
 
         self._init_gui()
-        self._publish_keyboard_enabled()
+        if self.keyboard_drive_ui_enabled:
+            self._publish_keyboard_enabled()
         self._publish_state()
         self.get_logger().info(
             f'mission mode manager active: mission={self.active_mission}, '
@@ -596,44 +605,48 @@ class MissionModeManager(Node):
         layout_status.pack(fill='x', padx=16, pady=(0, 8))
         self.gui_widgets['layout_status'] = layout_status
 
-        drive_title = tk.Label(
-            root,
-            text='Keyboard Drive',
-            bg='#202226',
-            fg='#d7dde2',
-            font=('Helvetica', 11, 'bold'),
-            anchor='w',
-        )
-        drive_title.pack(fill='x', padx=16, pady=(6, 2))
+        if self.keyboard_drive_ui_enabled:
+            drive_title = tk.Label(
+                root,
+                text='Keyboard Drive',
+                bg='#202226',
+                fg='#d7dde2',
+                font=('Helvetica', 11, 'bold'),
+                anchor='w',
+            )
+            drive_title.pack(fill='x', padx=16, pady=(6, 2))
 
-        drive_frame = tk.Frame(root, bg='#202226')
-        drive_frame.pack(fill='x', padx=14, pady=(0, 4))
-        self.gui_widgets['keyboard_enabled_var'] = tk.BooleanVar(value=False)
-        drive_enable = tk.Checkbutton(
-            drive_frame,
-            text='Enable',
-            variable=self.gui_widgets['keyboard_enabled_var'],
-            command=lambda: self._set_keyboard_drive_enabled(
-                bool(self.gui_widgets['keyboard_enabled_var'].get()), 'gui'),
-            bg='#202226',
-            fg='#f2f5f7',
-            selectcolor='#30343a',
-            activebackground='#202226',
-            activeforeground='#ffffff',
-            font=('Helvetica', 10, 'bold'),
-        )
-        drive_enable.pack(side='left', padx=4)
-        stop_button = tk.Button(
-            drive_frame,
-            text='STOP',
-            width=8,
-            height=1,
-            command=self._stop_keyboard_drive,
-            font=('Helvetica', 10, 'bold'),
-            bg='#6b2f2f',
-            fg='#ffffff',
-        )
-        stop_button.pack(side='left', padx=4)
+            drive_frame = tk.Frame(root, bg='#202226')
+            drive_frame.pack(fill='x', padx=14, pady=(0, 4))
+            self.gui_widgets['keyboard_enabled_var'] = tk.BooleanVar(value=False)
+            drive_enable = tk.Checkbutton(
+                drive_frame,
+                text='Enable',
+                variable=self.gui_widgets['keyboard_enabled_var'],
+                command=lambda: self._set_keyboard_drive_enabled(
+                    bool(self.gui_widgets['keyboard_enabled_var'].get()), 'gui'),
+                bg='#202226',
+                fg='#f2f5f7',
+                selectcolor='#30343a',
+                activebackground='#202226',
+                activeforeground='#ffffff',
+                font=('Helvetica', 10, 'bold'),
+            )
+            drive_enable.pack(side='left', padx=4)
+            stop_button = tk.Button(
+                drive_frame,
+                text='STOP',
+                width=8,
+                height=1,
+                command=self._stop_keyboard_drive,
+                font=('Helvetica', 10, 'bold'),
+                bg='#6b2f2f',
+                fg='#ffffff',
+            )
+            stop_button.pack(side='left', padx=4)
+        else:
+            drive_frame = tk.Frame(root, bg='#202226')
+            drive_frame.pack(fill='x', padx=14, pady=(6, 4))
         ok_button = tk.Button(
             drive_frame,
             text='OK',
@@ -646,21 +659,26 @@ class MissionModeManager(Node):
         )
         ok_button.pack(side='left', padx=4)
 
-        drive_status = tk.Label(
-            root,
-            text='Drive: disabled',
-            bg='#202226',
-            fg='#9ca6af',
-            font=('Helvetica', 10),
-            anchor='w',
-            wraplength=380,
-        )
-        drive_status.pack(fill='x', padx=16, pady=(0, 8))
-        self.gui_widgets['drive_status'] = drive_status
+        if self.keyboard_drive_ui_enabled:
+            drive_status = tk.Label(
+                root,
+                text='Drive: disabled',
+                bg='#202226',
+                fg='#9ca6af',
+                font=('Helvetica', 10),
+                anchor='w',
+                wraplength=380,
+            )
+            drive_status.pack(fill='x', padx=16, pady=(0, 8))
+            self.gui_widgets['drive_status'] = drive_status
 
         hint = tk.Label(
             root,
-            text='Keys: A/B/C/D mission, arrows drive, Shift+Left/Right rotate, Space stop, O ok',
+            text=(
+                'Keys: A/B/C/D mission, O ok'
+                if not self.keyboard_drive_ui_enabled
+                else 'Keys: A/B/C/D mission, arrows drive, Shift+Left/Right rotate, Space stop, O ok'
+            ),
             bg='#202226',
             fg='#9ca6af',
             font=('Helvetica', 10),
@@ -671,10 +689,10 @@ class MissionModeManager(Node):
 
     def _on_key_press(self, event):
         keysym = str(getattr(event, 'keysym', '') or '')
-        if keysym == 'space':
+        if self.keyboard_drive_ui_enabled and keysym == 'space':
             self._stop_keyboard_drive()
             return
-        if keysym in ('Up', 'Down', 'Left', 'Right'):
+        if self.keyboard_drive_ui_enabled and keysym in ('Up', 'Down', 'Left', 'Right'):
             if self.keyboard_drive_enabled:
                 drive_key = self._drive_key_from_event(event)
                 if drive_key:
@@ -692,6 +710,8 @@ class MissionModeManager(Node):
             self._set_mission(mission, 'keyboard')
 
     def _on_key_release(self, event):
+        if not self.keyboard_drive_ui_enabled:
+            return
         keysym = str(getattr(event, 'keysym', '') or '')
         if keysym in ('Up', 'Down'):
             self.pressed_drive_keys.pop(keysym.lower(), None)
@@ -705,6 +725,8 @@ class MissionModeManager(Node):
 
     def _on_focus_out(self, event):
         del event
+        if not self.keyboard_drive_ui_enabled:
+            return
         self.pressed_drive_keys.clear()
         self._update_drive_status()
 
@@ -730,11 +752,15 @@ class MissionModeManager(Node):
         return active
 
     def _publish_keyboard_enabled(self):
+        if self.keyboard_enabled_pub is None:
+            return
         msg = Bool()
         msg.data = bool(self.keyboard_drive_enabled)
         self.keyboard_enabled_pub.publish(msg)
 
     def _set_keyboard_drive_enabled(self, enabled, source):
+        if not self.keyboard_drive_ui_enabled:
+            return
         enabled = bool(enabled)
         if self.keyboard_drive_enabled == enabled:
             self._publish_keyboard_enabled()
@@ -743,14 +769,16 @@ class MissionModeManager(Node):
         self.keyboard_drive_enabled = enabled
         if not enabled:
             self.pressed_drive_keys.clear()
-            self.keyboard_cmd_pub.publish(Twist())
+            if self.keyboard_cmd_pub is not None:
+                self.keyboard_cmd_pub.publish(Twist())
         self._publish_keyboard_enabled()
         self._update_drive_status()
         self.get_logger().info(f'keyboard drive {"enabled" if enabled else "disabled"} by {source}')
 
     def _stop_keyboard_drive(self):
         self.pressed_drive_keys.clear()
-        self.keyboard_cmd_pub.publish(Twist())
+        if self.keyboard_cmd_pub is not None:
+            self.keyboard_cmd_pub.publish(Twist())
         self._update_drive_status()
 
     def _make_keyboard_twist(self):
@@ -779,6 +807,8 @@ class MissionModeManager(Node):
         return twist
 
     def _publish_keyboard_command(self):
+        if not self.keyboard_drive_ui_enabled or self.keyboard_cmd_pub is None:
+            return
         if not self.keyboard_drive_enabled:
             return
         self.keyboard_cmd_pub.publish(self._make_keyboard_twist())
