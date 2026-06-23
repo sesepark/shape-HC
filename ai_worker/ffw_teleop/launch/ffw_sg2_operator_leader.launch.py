@@ -76,6 +76,7 @@ def generate_launch_description():
     keyboard_publish_hz = LaunchConfiguration('keyboard_publish_hz')
     keyboard_key_timeout_s = LaunchConfiguration('keyboard_key_timeout_s')
     mouse_hold_timeout_s = LaunchConfiguration('mouse_hold_timeout_s')
+    mouse_max_hold_s = LaunchConfiguration('mouse_max_hold_s')
     keyboard_stale_timeout_s = LaunchConfiguration('keyboard_stale_timeout_s')
     joystick_stale_timeout_s = LaunchConfiguration('joystick_stale_timeout_s')
     operator_ok_topic = LaunchConfiguration('operator_ok_topic')
@@ -262,6 +263,7 @@ def generate_launch_description():
             'keyboard_angular_z_radps': keyboard_angular_z_radps,
             'click_jog_duration_s': keyboard_key_timeout_s,
             'mouse_hold_timeout_s': mouse_hold_timeout_s,
+            'mouse_max_hold_s': mouse_max_hold_s,
             'operator_ok_topic': operator_ok_topic,
             'ok_overlay_duration_s': ok_overlay_duration_s,
         }],
@@ -327,6 +329,7 @@ def generate_launch_description():
         DeclareLaunchArgument('keyboard_publish_hz', default_value='30.0'),
         DeclareLaunchArgument('keyboard_key_timeout_s', default_value='0.35'),
         DeclareLaunchArgument('mouse_hold_timeout_s', default_value='0.75'),
+        DeclareLaunchArgument('mouse_max_hold_s', default_value='8.0'),
         DeclareLaunchArgument('keyboard_stale_timeout_s', default_value='0.20'),
         DeclareLaunchArgument('joystick_stale_timeout_s', default_value='0.30'),
         DeclareLaunchArgument('operator_ok_topic', default_value='/teleop/operator_ok'),

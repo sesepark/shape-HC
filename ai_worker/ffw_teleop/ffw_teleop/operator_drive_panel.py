@@ -36,6 +36,7 @@ class OperatorDrivePanel(Node):
         self.declare_parameter('keyboard_angular_z_radps', 0.25)
         self.declare_parameter('click_jog_duration_s', 0.25)
         self.declare_parameter('mouse_hold_timeout_s', 0.75)
+        self.declare_parameter('mouse_max_hold_s', 8.0)
         self.declare_parameter('operator_ok_topic', '/teleop/operator_ok')
         self.declare_parameter('ok_overlay_duration_s', 3.0)
         self.declare_parameter('headless_ok', True)
@@ -60,6 +61,8 @@ class OperatorDrivePanel(Node):
             float(self.get_parameter('click_jog_duration_s').value), 0.05)
         self.mouse_hold_timeout_s = max(
             float(self.get_parameter('mouse_hold_timeout_s').value), 0.5)
+        self.mouse_max_hold_s = max(
+            float(self.get_parameter('mouse_max_hold_s').value), 0.0)
         self.operator_ok_topic = str(self.get_parameter('operator_ok_topic').value).strip()
         self.ok_overlay_duration_s = max(
             float(self.get_parameter('ok_overlay_duration_s').value), 0.1)
@@ -70,6 +73,7 @@ class OperatorDrivePanel(Node):
         self.active_until_s = 0.0
         self.mouse_hold_action = ''
         self.mouse_is_down = False
+        self.mouse_hold_started_s = 0.0
         self.status_text = 'LOCKED'
         self.gui_available = False
         self.buttons = []
@@ -135,7 +139,14 @@ class OperatorDrivePanel(Node):
     def _tick(self):
         now_s = time.time()
         if self.mouse_is_down and self.mouse_hold_action and self.drive_enabled:
-            self.active_until_s = now_s + self.mouse_hold_timeout_s
+            hold_age_s = (
+                now_s - self.mouse_hold_started_s
+                if self.mouse_hold_started_s > 0.0 else 0.0
+            )
+            if self.mouse_max_hold_s > 0.0 and hold_age_s > self.mouse_max_hold_s:
+                self._stop_motion('MOUSE HOLD TIMEOUT - STOPPED')
+            else:
+                self.active_until_s = now_s + self.mouse_hold_timeout_s
         if self.active_action and now_s > self.active_until_s:
             self._stop_motion()
         if self.drive_enabled and self.active_action:
@@ -261,12 +272,15 @@ class OperatorDrivePanel(Node):
             if action in ('forward', 'backward', 'left', 'right', 'rot_left', 'rot_right'):
                 self.mouse_hold_action = action
                 self.mouse_is_down = True
+                self.mouse_hold_started_s = time.time()
                 self._start_motion(action, 'HOLD', self.mouse_hold_timeout_s)
             else:
                 self._handle_click(action)
         elif event == cv2.EVENT_MOUSEMOVE and self.mouse_hold_action:
             if flags & cv2.EVENT_FLAG_LBUTTON:
                 self.mouse_is_down = True
+                if self.mouse_hold_started_s <= 0.0:
+                    self.mouse_hold_started_s = time.time()
                 self.active_until_s = time.time() + self.mouse_hold_timeout_s
             else:
                 self._stop_motion()
@@ -371,13 +385,16 @@ class OperatorDrivePanel(Node):
         msg.data = bool(self.drive_enabled)
         self.enabled_pub.publish(msg)
 
-    def _stop_motion(self):
+    def _stop_motion(self, status_text=None):
         self.active_action = ''
         self.active_until_s = 0.0
         self.mouse_hold_action = ''
         self.mouse_is_down = False
+        self.mouse_hold_started_s = 0.0
         if self.drive_enabled:
-            self.status_text = 'DRIVE ON - STOPPED'
+            self.status_text = status_text or 'DRIVE ON - STOPPED'
+        elif status_text:
+            self.status_text = status_text
         self.cmd_pub.publish(Twist())
 
     def _make_twist(self, action):
