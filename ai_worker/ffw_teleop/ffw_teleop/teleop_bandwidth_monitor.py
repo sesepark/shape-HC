@@ -251,6 +251,7 @@ class TeleopBandwidthMonitor(Node):
         }
         for key in (
             'topic',
+            'assist_mode',
             'depth_input_hz',
             'base_input_hz',
             'rx_hz',
@@ -377,10 +378,7 @@ class TeleopBandwidthMonitor(Node):
             target_fps = self._target_fps_for_stream(name)
             fps_state = 'LOW FPS' if fps < target_fps * 0.8 else 'OK'
             perf_text = self._perf_text(stream)
-            text = (
-                f'{label:<7} {fps:4.1f}Hz {mbps:5.1f}M '
-                f'{res:<9} {q_text} {fps_state} {perf_text}'
-            )
+            text = f'{label:<7} {fps:4.1f}Hz {mbps:5.1f}M {res:<9} {q_text} {fps_state} {perf_text}'
             bar_color = self._usage_color(usage)
         else:
             state = self._stale_state_text(stream)
@@ -411,14 +409,28 @@ class TeleopBandwidthMonitor(Node):
     def _perf_text(self, stream):
         perf = stream.get('camera_perf') or {}
         if not perf:
-            return 'SRC -- OUT -- P -- J --'
+            return 'S-- O-- P-- J--'
         if perf.get('stale'):
-            return 'SRC STALE OUT -- P -- J --'
-        src_hz = self._first_float(
-            perf.get('depth_input_hz'),
-            perf.get('rx_hz'),
-            perf.get('base_input_hz'),
-        )
+            return 'S stale O-- P-- J--'
+        depth_hz = self._float_or_none(perf.get('depth_input_hz'))
+        base_hz = self._float_or_none(perf.get('base_input_hz'))
+        rx_hz = self._float_or_none(perf.get('rx_hz'))
+        mode = str(perf.get('assist_mode') or '').strip().lower()
+        if base_hz is not None and mode in ('tf_header', 'tf_only'):
+            src_label = 'B'
+            src_hz = base_hz
+        elif depth_hz is not None:
+            src_label = 'D'
+            src_hz = depth_hz
+        elif rx_hz is not None:
+            src_label = 'R'
+            src_hz = rx_hz
+        elif base_hz is not None:
+            src_label = 'B'
+            src_hz = base_hz
+        else:
+            src_label = 'S'
+            src_hz = None
         out_hz = self._float_or_none(perf.get('output_hz'))
         process_ms = self._float_or_none(perf.get('process_ms'))
         jpeg_ms = self._float_or_none(perf.get('jpeg_ms'))
@@ -428,8 +440,8 @@ class TeleopBandwidthMonitor(Node):
         jpeg = '--' if jpeg_ms is None else f'{jpeg_ms:.0f}'
         drop = str(perf.get('drop_reason') or '')
         if drop and drop not in ('published', 'main_rx'):
-            return f'SRC {src} OUT {out} P{proc} J{jpeg} {drop[:12]}'
-        return f'SRC {src} OUT {out} P{proc} J{jpeg}'
+            return f'{src_label}{src} O{out} P{proc} J{jpeg} {drop[:8]}'
+        return f'{src_label}{src} O{out} P{proc} J{jpeg}'
 
     def _target_fps_for_stream(self, name):
         profile_param_by_name = {

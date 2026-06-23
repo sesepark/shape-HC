@@ -472,112 +472,6 @@ class WristDepthOverlay(Node):
             return float('nan')
         return float(np.median(roi[valid]))
 
-    def _depth_grid(self, depth_m):
-        height, width = depth_m.shape[:2]
-        labels = [
-            ('tl', 0.25, 0.25), ('tc', 0.50, 0.25), ('tr', 0.75, 0.25),
-            ('ml', 0.25, 0.50), ('mc', 0.50, 0.50), ('mr', 0.75, 0.50),
-            ('bl', 0.25, 0.75), ('bc', 0.50, 0.75), ('br', 0.75, 0.75),
-        ]
-        grid = {}
-        points = {}
-        for label, x_ratio, y_ratio in labels:
-            cx = int(width * x_ratio)
-            cy = int(height * y_ratio)
-            grid[label] = self._median_depth_at(depth_m, cx, cy, self.roi_size_px)
-            points[label] = (cx, cy)
-        return grid, points
-
-    def _nearest_component(self, depth_m, valid, center_m):
-        if math.isfinite(center_m):
-            near_depth = min(center_m + self.assist_component_margin_m, self.max_depth_m)
-        elif self.contour_near_depth_m > 0.0:
-            near_depth = min(self.contour_near_depth_m, self.max_depth_m)
-        else:
-            near_depth = self.min_depth_m + 0.5 * (self.max_depth_m - self.min_depth_m)
-
-        near_mask = (valid & (depth_m <= near_depth)).astype(np.uint8) * 255
-        if not np.any(near_mask):
-            return {}, {}
-
-        kernel = np.ones((3, 3), np.uint8)
-        near_mask = cv2.morphologyEx(near_mask, cv2.MORPH_OPEN, kernel)
-        contours, _ = cv2.findContours(near_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        contours = [
-            contour for contour in contours
-            if cv2.contourArea(contour) >= self.contour_min_area_px
-        ]
-        if not contours:
-            return {}, {}
-
-        contour = max(contours, key=cv2.contourArea)
-        mask = np.zeros(depth_m.shape, dtype=np.uint8)
-        cv2.drawContours(mask, [contour], -1, 255, -1)
-        contour_valid = (mask > 0) & valid
-        if not np.any(contour_valid):
-            return {}, {}
-
-        moments = cv2.moments(contour)
-        if moments['m00'] > 1e-6:
-            cx = float(moments['m10'] / moments['m00'])
-            cy = float(moments['m01'] / moments['m00'])
-        else:
-            points = contour.reshape(-1, 2)
-            cx = float(np.mean(points[:, 0]))
-            cy = float(np.mean(points[:, 1]))
-
-        ys, xs = np.nonzero(contour_valid)
-        points = np.column_stack((xs.astype(np.float32), ys.astype(np.float32)))
-        axis = {}
-        draw = {
-            'contour': contour,
-            'center': (int(round(cx)), int(round(cy))),
-        }
-        if points.shape[0] >= 5:
-            mean, eigenvectors = cv2.PCACompute(points, None)
-            direction = eigenvectors[0]
-            angle_deg = math.degrees(math.atan2(float(direction[1]), float(direction[0])))
-            axis = {
-                'angle_deg': self._clean_float(angle_deg, 2),
-            }
-            draw['axis_direction'] = (float(direction[0]), float(direction[1]))
-        else:
-            axis = {
-                'angle_deg': None,
-            }
-
-        nearest_depth = float(np.median(depth_m[contour_valid]))
-        component = {
-            'valid': True,
-            'cx_px': int(round(cx)),
-            'cy_px': int(round(cy)),
-            'area_px': int(cv2.contourArea(contour)),
-            'depth_m': self._clean_float(nearest_depth),
-            'threshold_m': self._clean_float(near_depth),
-        }
-        component.update(axis)
-        return component, draw
-
-    def _depth_hint(self, nearest, center_m):
-        if not nearest.get('valid'):
-            return 'CHECK'
-
-        offset_x = nearest.get('offset_x_px')
-        offset_y = nearest.get('offset_y_px')
-        if offset_x is None or offset_y is None:
-            return 'CHECK'
-        if abs(offset_x) > self.assist_offset_threshold_px:
-            return 'RIGHT' if offset_x > 0 else 'LEFT'
-        if abs(offset_y) > self.assist_offset_threshold_px:
-            return 'DOWN' if offset_y > 0 else 'UP'
-
-        if self.assist_target_depth_m > 0.0 and math.isfinite(center_m):
-            if center_m > self.assist_target_depth_m + self.assist_depth_tolerance_m:
-                return 'CLOSER'
-            if center_m < self.assist_target_depth_m - self.assist_depth_tolerance_m:
-                return 'FARTHER'
-        return 'ALIGNED'
-
     def _target_band(self, target_m):
         if target_m is None or not math.isfinite(float(target_m)):
             return 'unknown'
@@ -591,48 +485,29 @@ class WristDepthOverlay(Node):
         return 'outside'
 
     def _depth_assist_metrics(self, depth_m, stamp):
-        height, width = depth_m.shape[:2]
-        valid = self._valid_mask(depth_m)
-        grid, grid_points = self._depth_grid(depth_m)
-        camera_center_m = grid.get('mc', float('nan'))
         target_pixels = self._gripper_target_pixels(depth_m.shape)
         target_px = target_pixels['raw_target_px']
         target_m = self._median_depth_at(
             depth_m, target_px['x'], target_px['y'], self.roi_size_px)
-        nearest, draw = self._nearest_component(depth_m, valid, target_m)
-        if nearest.get('valid'):
-            nearest['offset_x_px'] = int(nearest['cx_px'] - target_px['x'])
-            nearest['offset_y_px'] = int(nearest['cy_px'] - target_px['y'])
-        hint = self._depth_hint(nearest, target_m)
-
-        grid_public = {
-            label: self._clean_float(value)
-            for label, value in grid.items()
-        }
-        nearest_depth = nearest.get('depth_m')
-        relative_depth = None
-        if math.isfinite(target_m) and nearest_depth is not None:
-            relative_depth = self._clean_float(target_m - float(nearest_depth))
-
         metrics = {
             'side': self.side,
             'stamp_sec': self._clean_float(self._stamp_sec(stamp), 6),
             'center_m': self._clean_float(target_m),
             'target_m': self._clean_float(target_m),
-            'camera_center_m': self._clean_float(camera_center_m),
-            'grid_m': grid_public,
-            'nearest_valid': bool(nearest.get('valid', False)),
-            'nearest_depth_m': nearest_depth if nearest.get('valid') else None,
-            'nearest_cx_px': nearest.get('cx_px'),
-            'nearest_cy_px': nearest.get('cy_px'),
-            'nearest_area_px': nearest.get('area_px'),
-            'axis_valid': bool(nearest.get('valid', False) and nearest.get('angle_deg') is not None),
-            'axis_angle_deg': nearest.get('angle_deg'),
-            'offset_x_px': nearest.get('offset_x_px'),
-            'offset_y_px': nearest.get('offset_y_px'),
-            'center_minus_nearest_m': relative_depth,
-            'target_minus_nearest_m': relative_depth,
-            'hint': hint,
+            'camera_center_m': None,
+            'grid_m': {},
+            'nearest_valid': False,
+            'nearest_depth_m': None,
+            'nearest_cx_px': None,
+            'nearest_cy_px': None,
+            'nearest_area_px': None,
+            'axis_valid': False,
+            'axis_angle_deg': None,
+            'offset_x_px': None,
+            'offset_y_px': None,
+            'center_minus_nearest_m': None,
+            'target_minus_nearest_m': None,
+            'hint': 'TARGET_DEPTH_ONLY',
             'target_band': self._target_band(target_m),
             'gripper_target': target_pixels,
             'view': {
@@ -642,8 +517,7 @@ class WristDepthOverlay(Node):
                 'flip_vertical': self.view_flip_vertical,
             },
         }
-        draw['grid_points'] = grid_points
-        draw['valid'] = valid
+        draw = {}
         draw['target_pixels'] = target_pixels
         return metrics, draw
 
@@ -712,15 +586,6 @@ class WristDepthOverlay(Node):
         if value is None:
             return '--'
         return f'{float(value):.2f}'
-
-    def _hint_color(self, hint):
-        if hint == 'ALIGNED':
-            return (80, 220, 120)
-        if hint in ('LEFT', 'RIGHT', 'UP', 'DOWN'):
-            return (70, 190, 255)
-        if hint in ('CLOSER', 'FARTHER'):
-            return (60, 180, 255)
-        return (70, 70, 255)
 
     def _band_valid_mask(self, depth_m):
         return (
@@ -871,18 +736,12 @@ class WristDepthOverlay(Node):
         if target != camera_center:
             cv2.line(image, camera_center, target, (180, 180, 180), 1, cv2.LINE_AA)
 
-        nearest_center = draw.get('center')
-        if nearest_center is not None:
-            cv2.circle(image, nearest_center, 5, (255, 255, 255), 1, cv2.LINE_AA)
-            cv2.line(image, target, nearest_center, (255, 255, 255), 1, cv2.LINE_AA)
-
         image = self._apply_view_transform(image)
         height, width = image.shape[:2]
         cv2.rectangle(image, (0, 0), (width - 1, 62), (16, 18, 20), -1)
         cv2.rectangle(image, (0, 0), (width - 1, 62), (230, 230, 230), 1)
 
         target_text = self._format_depth(metrics.get('target_m'))
-        nearest_text = self._format_depth(metrics.get('nearest_depth_m'))
         view_text = (
             f'{self.side.upper()} {self.view_preset} ROT {self.view_rotate_deg:.0f}deg '
             f'TARGET {self.gripper_target_offset_x_px:+d},{self.gripper_target_offset_y_px:+d}px'
@@ -890,7 +749,7 @@ class WristDepthOverlay(Node):
         self._put_text(image, view_text, (8, 24), 0.50)
         self._put_text(
             image,
-            f'TARGET {target_text}m  NEAR {nearest_text}m',
+            f'TARGET {target_text}m',
             (8, 48),
             0.46,
         )

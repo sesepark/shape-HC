@@ -33,6 +33,7 @@ class ZedDepthAssist(Node):
         self.declare_parameter('stream_stats_topic', '/teleop/stream_stats')
         self.declare_parameter('stream_stats_name', 'zed')
         self.declare_parameter('camera_perf_topic', '/teleop/camera_perf')
+        self.declare_parameter('assist_mode', 'tf_header')
         self.declare_parameter('publish_fps', 30.0)
         self.declare_parameter('jpeg_quality', 88)
         self.declare_parameter('depth_scale', 0.001)
@@ -95,6 +96,11 @@ class ZedDepthAssist(Node):
         self.stream_stats_name = str(
             self.get_parameter('stream_stats_name').value).strip() or 'zed'
         self.camera_perf_topic = str(self.get_parameter('camera_perf_topic').value).strip()
+        self.assist_mode = str(self.get_parameter('assist_mode').value).strip().lower()
+        if self.assist_mode not in ('tf_header', 'tf_only', 'depth'):
+            self.get_logger().warn(
+                f'unknown ZED assist_mode={self.assist_mode!r}; using tf_header')
+            self.assist_mode = 'tf_header'
         self.publish_fps = max(float(self.get_parameter('publish_fps').value), 0.1)
         self.jpeg_quality = int(np.clip(int(self.get_parameter('jpeg_quality').value), 1, 100))
         self.depth_scale = float(self.get_parameter('depth_scale').value)
@@ -137,6 +143,11 @@ class ZedDepthAssist(Node):
             float(self.get_parameter('component_min_area_px').value), 1.0)
         self.enable_near_hand_objects = self._as_bool(
             self.get_parameter('enable_near_hand_objects').value)
+        if self.enable_near_hand_objects and self.assist_mode != 'depth':
+            self.get_logger().warn(
+                'enable_near_hand_objects requires ZED depth; switching assist_mode to depth')
+            self.assist_mode = 'depth'
+        self.uses_depth_image = self.assist_mode == 'depth'
 
         self.publish_period_ns = int(1_000_000_000 / self.publish_fps)
         self.last_publish_time = None
@@ -159,8 +170,10 @@ class ZedDepthAssist(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
-        self.depth_sub = self.create_subscription(
-            Image, self.depth_topic, self._depth_callback, qos_profile_sensor_data)
+        self.depth_sub = None
+        if self.uses_depth_image:
+            self.depth_sub = self.create_subscription(
+                Image, self.depth_topic, self._depth_callback, qos_profile_sensor_data)
         self.base_sub = self.create_subscription(
             Image, self.base_image_topic, self._base_image_callback, qos_profile_sensor_data)
         self.info_subs = [
@@ -183,7 +196,8 @@ class ZedDepthAssist(Node):
             self.camera_perf_pub = self.create_publisher(String, self.camera_perf_topic, 10)
 
         self.get_logger().info(
-            f'ZED arm-relative depth assist: depth={self.depth_topic}, '
+            f'ZED arm-relative depth assist: mode={self.assist_mode}, '
+            f'depth={self.depth_topic if self.uses_depth_image else "disabled"}, '
             f'base={self.base_image_topic}, info={self.camera_info_topics} '
             f'-> {self.assist_topic} at {self.publish_fps:.1f} fps, '
             f'stats={self.stream_stats_topic or "disabled"}')
@@ -246,7 +260,9 @@ class ZedDepthAssist(Node):
             'stamp_sec': now.nanoseconds / 1e9,
             'name': self.stream_stats_name,
             'topic': self.assist_topic,
-            'depth_input_hz': self._sample_hz(self.depth_input_times),
+            'assist_mode': self.assist_mode,
+            'depth_input_hz': (
+                self._sample_hz(self.depth_input_times) if self.uses_depth_image else None),
             'base_input_hz': self._sample_hz(self.base_input_times),
             'output_hz': self._sample_hz(self.output_times),
             'process_ms': self._clean_float(self.last_process_ms, 2),
@@ -261,6 +277,27 @@ class ZedDepthAssist(Node):
 
     def _base_image_callback(self, msg):
         self._record_event(self.base_input_times)
+        if not self.uses_depth_image:
+            now = self.get_clock().now()
+            callback_start = time.perf_counter()
+            if (self.last_publish_time is not None and
+                    (now - self.last_publish_time).nanoseconds < self.publish_period_ns):
+                self.last_drop_reason = 'throttle'
+                self._maybe_publish_camera_perf(now)
+                return
+            self.last_publish_time = now
+
+            image = self._image_to_bgr(msg)
+            if image is None:
+                self.last_drop_reason = 'invalid_base_image'
+                self._maybe_publish_camera_perf(now)
+                return
+            self.latest_base_image = image
+            self.latest_base_image_time = now
+            self.latest_base_image_header = msg.header
+            self._publish_tf_header_assist(msg, image, now, callback_start)
+            return
+
         image = self._image_to_bgr(msg)
         if image is None:
             return
@@ -448,6 +485,19 @@ class ZedDepthAssist(Node):
             return Time()
         return Time.from_msg(stamp)
 
+    def _camera_frame_candidates_from_header(self, header):
+        candidates = []
+        for frame in (
+            self.camera_optical_frame,
+            self.latest_intrinsics.get('frame_id') if self.latest_intrinsics else '',
+            getattr(header, 'frame_id', ''),
+            *self.camera_frame_fallbacks,
+        ):
+            frame = str(frame).strip()
+            if frame and frame not in candidates:
+                candidates.append(frame)
+        return candidates
+
     def _lookup_link_point(self, camera_frame, source_frame, stamp):
         try:
             transform = self.tf_buffer.lookup_transform(
@@ -526,6 +576,107 @@ class ZedDepthAssist(Node):
                 'links': link_draw,
             }
         return projections
+
+    def _collect_hand_depths(self, camera_frame, stamp):
+        configs = {
+            'left': self.left_hand_frames,
+            'right': self.right_hand_frames,
+        }
+        hands = {}
+        for side, frames in configs.items():
+            hand_frame, hand_point = self._lookup_first_link_point(camera_frame, frames, stamp)
+            hand_depth = None
+            hand_valid = False
+            if (hand_point is not None and np.all(np.isfinite(hand_point)) and
+                    float(hand_point[2]) > 0.02):
+                hand_depth = self._clean_float(float(hand_point[2]))
+                hand_valid = True
+            hands[side] = {
+                'valid': hand_valid,
+                'frame': hand_frame,
+                'frame_candidates': frames,
+                'pixel': None,
+                'visible': False,
+                'hand_depth_m': hand_depth,
+                'hand_point_m': (
+                    [self._clean_float(value) for value in hand_point]
+                    if hand_point is not None else None),
+                'object_candidate_count': 0,
+                'nearest_object': None,
+                'objects': [],
+            }
+        return hands
+
+    def _arm_relative_metrics_tf(self, header):
+        stamp = header.stamp
+        camera_candidates = self._camera_frame_candidates_from_header(header)
+        last_error = ''
+        for camera_frame in camera_candidates:
+            hands = self._collect_hand_depths(camera_frame, stamp)
+            left_ok = hands['left']['hand_depth_m'] is not None
+            right_ok = hands['right']['hand_depth_m'] is not None
+            if left_ok or right_ok:
+                break
+            last_error = f'no TF from {camera_frame} to hand frames'
+        else:
+            return {
+                'stamp_sec': self._clean_float(self._stamp_sec(header.stamp), 6),
+                'status': 'waiting_tf',
+                'assist_mode': self.assist_mode,
+                'camera_frame_candidates': camera_candidates,
+                'message': last_error or 'no camera frame candidates',
+            }, {
+                'status_text': 'WAITING TF',
+                'projections': {},
+                'objects': {},
+                'enable_near_hand_objects': False,
+            }
+
+        compare = self._compare_hands(
+            hands['left']['hand_depth_m'],
+            hands['right']['hand_depth_m'],
+        )
+        metrics = {
+            'stamp_sec': self._clean_float(self._stamp_sec(header.stamp), 6),
+            'status': 'ok',
+            'assist_mode': self.assist_mode,
+            'camera_frame': camera_frame,
+            'camera_info_frame': (
+                self.latest_intrinsics.get('frame_id') if self.latest_intrinsics else None),
+            'camera_info_topic': self.latest_camera_info_topic,
+            'hands': hands,
+            'gripper_depth_compare': compare,
+        }
+        draw = {
+            'status_text': '',
+            'camera_frame': camera_frame,
+            'projections': {},
+            'objects': {},
+            'enable_near_hand_objects': False,
+        }
+        return metrics, draw
+
+    def _publish_tf_header_assist(self, source_msg, base_image, now, callback_start):
+        metrics, draw = self._arm_relative_metrics_tf(source_msg.header)
+        self._publish_metrics(metrics)
+
+        if self.count_subscribers(self.assist_topic) <= 0:
+            self.last_drop_reason = 'no_subscribers'
+            self.last_process_ms = (time.perf_counter() - callback_start) * 1000.0
+            self._maybe_publish_camera_perf(now)
+            return
+
+        image = self._make_assist_image(metrics, draw, base_image)
+        byte_count, jpeg_ms = self._publish_jpeg(source_msg.header, image)
+        if byte_count > 0:
+            self._record_event(self.output_times)
+            self.last_output_bytes = byte_count
+            self.last_jpeg_ms = jpeg_ms
+            self.last_drop_reason = 'published'
+        else:
+            self.last_drop_reason = 'jpeg_failed'
+        self.last_process_ms = (time.perf_counter() - callback_start) * 1000.0
+        self._maybe_publish_camera_perf(now)
 
     def _draw_robot_mask(self, shape, projections):
         mask = np.zeros(shape[:2], dtype=np.uint8)

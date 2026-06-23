@@ -151,6 +151,7 @@ def generate_launch_description():
             'stream_stats_topic': LaunchConfiguration('stream_stats_topic'),
             'camera_perf_topic': LaunchConfiguration('camera_perf_topic'),
             'stream_stats_name': 'zed',
+            'assist_mode': LaunchConfiguration('zed_assist_mode'),
             'publish_fps': LaunchConfiguration('zed_assist_fps'),
             'jpeg_quality': LaunchConfiguration('zed_assist_jpeg_quality'),
             'min_depth_m': LaunchConfiguration('zed_min_depth_m'),
@@ -409,6 +410,7 @@ def generate_launch_description():
             'stream_stats_topic', default_value='/teleop/stream_stats'),
         DeclareLaunchArgument(
             'camera_perf_topic', default_value='/teleop/camera_perf'),
+        DeclareLaunchArgument('zed_assist_mode', default_value='tf_header'),
         DeclareLaunchArgument('zed_assist_fps', default_value='30.0'),
         DeclareLaunchArgument('zed_assist_jpeg_quality', default_value='88'),
         DeclareLaunchArgument('zed_min_depth_m', default_value='0.15'),
@@ -516,7 +518,7 @@ def generate_launch_description():
         DeclareLaunchArgument('publish_metrics', default_value='true'),
         DeclareLaunchArgument(
             'overlay_fps',
-            default_value=profile_value('10.0', '30.0', '30.0', '30.0')),
+            default_value=profile_value('10.0', '35.0', '35.0', '35.0')),
         DeclareLaunchArgument('depth_scale', default_value='0.001'),
         DeclareLaunchArgument('min_depth_m', default_value='0.03'),
         DeclareLaunchArgument('max_depth_m', default_value='0.70'),

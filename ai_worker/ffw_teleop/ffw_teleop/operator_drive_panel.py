@@ -561,6 +561,9 @@ class OperatorDrivePanel(Node):
         root.bind('<KeyPress>', self._on_key_press)
         root.bind('<KeyRelease>', self._on_key_release)
         root.bind('<Button-1>', self._focus_panel, add='+')
+        for entry in (self.distance_entry, self.rotate_entry):
+            entry.bind('<Button-1>', self._focus_entry, add='+')
+            entry.bind('<FocusIn>', self._on_entry_focus_in, add='+')
         root.bind_all('<ButtonRelease-1>', self._on_any_mouse_release, add='+')
         root.after(200, self._request_initial_focus)
         self._update_display()
@@ -616,9 +619,20 @@ class OperatorDrivePanel(Node):
         self._poll_focus()
 
     def _focus_panel(self, event=None):
-        del event
+        if event is not None and self._event_from_entry(event):
+            return
         if self.root is not None:
             self.root.focus_set()
+
+    def _focus_entry(self, event):
+        widget = getattr(event, 'widget', None)
+        if widget is not None:
+            widget.focus_set()
+
+    def _on_entry_focus_in(self, event=None):
+        del event
+        self.focus_active = True
+        self._update_display()
 
     def _on_focus_in(self, event=None):
         del event
@@ -684,6 +698,8 @@ class OperatorDrivePanel(Node):
             return False
 
     def _on_key_release(self, event):
+        if self._event_from_entry(event):
+            return
         action = KEY_ACTIONS.get(str(event.keysym).lower())
         if action is None or self.root is None:
             return
@@ -951,13 +967,13 @@ class OperatorDrivePanel(Node):
             self._update_display()
             return
 
-        if action == 'head_left':
-            pan += self.head_pan_step_rad
-        elif action == 'head_right':
+        if action == 'head_up':
             pan -= self.head_pan_step_rad
-        elif action == 'head_up':
-            tilt += self.head_tilt_step_rad
         elif action == 'head_down':
+            pan += self.head_pan_step_rad
+        elif action == 'head_left':
+            tilt += self.head_tilt_step_rad
+        elif action == 'head_right':
             tilt -= self.head_tilt_step_rad
         else:
             return
