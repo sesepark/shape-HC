@@ -53,17 +53,20 @@ class TeleopCmdVelMux(Node):
         self.last_status_publish_s = 0.0
         self.last_source = 'startup'
 
-        cmd_qos = make_teleop_qos(depth=1)
+        cmd_input_qos = make_teleop_qos(depth=1)
+        cmd_output_qos = QoSProfile(depth=1)
+        cmd_output_qos.reliability = ReliabilityPolicy.RELIABLE
+        cmd_output_qos.durability = DurabilityPolicy.VOLATILE
         enabled_qos = QoSProfile(depth=1)
         enabled_qos.reliability = ReliabilityPolicy.RELIABLE
         enabled_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
 
-        self.cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, cmd_qos)
+        self.cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, cmd_output_qos)
         self.status_pub = self.create_publisher(String, self.status_topic, 10)
         self.create_subscription(
-            Twist, self.joystick_cmd_vel_topic, self._joystick_callback, cmd_qos)
+            Twist, self.joystick_cmd_vel_topic, self._joystick_callback, cmd_input_qos)
         self.create_subscription(
-            Twist, self.keyboard_cmd_vel_topic, self._keyboard_callback, cmd_qos)
+            Twist, self.keyboard_cmd_vel_topic, self._keyboard_callback, cmd_input_qos)
         self.create_subscription(
             Bool, self.keyboard_enabled_topic, self._keyboard_enabled_callback, enabled_qos)
         self.timer = self.create_timer(1.0 / publish_hz, self._publish)
@@ -117,14 +120,28 @@ class TeleopCmdVelMux(Node):
             self.last_status_publish_s = now_s
             self._publish_status(now_s, source, keyboard_fresh, joystick_fresh)
 
+    def _owner_for_source(self, source):
+        if source == 'keyboard':
+            return 'monitor'
+        if source == 'keyboard_stale':
+            return 'monitor_stale'
+        if source == 'joystick':
+            return 'leader'
+        if source == 'joystick_stale':
+            return 'leader_stale'
+        return source
+
     def _publish_status(self, now_s, source, keyboard_fresh, joystick_fresh):
         msg = String()
         msg.data = json.dumps({
             'stamp_sec': now_s,
             'source': source,
+            'owner': self._owner_for_source(source),
+            'drive_enabled': bool(self.keyboard_enabled),
             'keyboard_enabled': bool(self.keyboard_enabled),
             'keyboard_fresh': bool(keyboard_fresh),
             'joystick_fresh': bool(joystick_fresh),
+            'output_topic': self.cmd_vel_topic,
             'keyboard_age_s': (
                 None if self.last_keyboard_time_s <= 0.0
                 else max(now_s - self.last_keyboard_time_s, 0.0)
