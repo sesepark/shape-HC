@@ -177,6 +177,25 @@ class OperatorDrivePanel(Node):
     def _cmd_vel_publisher_count(self):
         return self.count_publishers(self.cmd_vel_topic) if self.cmd_vel_topic else 0
 
+    def _cmd_vel_publishers(self):
+        if not self.cmd_vel_topic:
+            return []
+        publishers = []
+        try:
+            infos = self.get_publishers_info_by_topic(self.cmd_vel_topic)
+        except Exception:
+            return []
+        for info in infos:
+            namespace = str(getattr(info, 'node_namespace', '') or '').strip()
+            name = str(getattr(info, 'node_name', '') or '').strip()
+            if not name:
+                continue
+            if namespace and namespace != '/':
+                publishers.append(f'{namespace.rstrip("/")}/{name}')
+            else:
+                publishers.append(f'/{name}')
+        return sorted(set(publishers))
+
     def _cmd_vel_conflict(self):
         return self._cmd_vel_publisher_count() > 1
 
@@ -202,6 +221,12 @@ class OperatorDrivePanel(Node):
     def _mux_text(self, mux_connected):
         cmd_vel_publishers = self._cmd_vel_publisher_count()
         cmd_vel_text = f'cmd_vel pubs={cmd_vel_publishers}'
+        publisher_names = self._cmd_vel_publishers()
+        if cmd_vel_publishers > 1 and publisher_names:
+            shown = ', '.join(publisher_names[:3])
+            if len(publisher_names) > 3:
+                shown += ', ...'
+            cmd_vel_text = f'{cmd_vel_text} [{shown}]'
         if not mux_connected:
             return f'OFF - launch start_cmd_vel_mux:=true; {cmd_vel_text}'
         if not self._mux_status_fresh():

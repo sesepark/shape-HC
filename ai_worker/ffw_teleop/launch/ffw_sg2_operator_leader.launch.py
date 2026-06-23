@@ -151,6 +151,8 @@ def generate_launch_description():
         remappings=[
             ('~/robot_description', leader_robot_description_topic),
             ('robot_description', leader_robot_description_topic),
+            ('/cmd_vel', joystick_cmd_vel_topic),
+            ('cmd_vel', joystick_cmd_vel_topic),
         ],
         output='both',
         condition=IfCondition(start_leader),
