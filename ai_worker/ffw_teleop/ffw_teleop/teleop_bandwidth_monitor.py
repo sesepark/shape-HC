@@ -16,6 +16,10 @@ STREAM_ROWS = (
     ('wrist_left_color', 'L COLOR'),
     ('wrist_right_color', 'R COLOR'),
 )
+DEFAULT_EXPECTED_TOPICS = {
+    'wrist_left_color': '/camera_left/camera_left/color/image_raw/compressed',
+    'wrist_right_color': '/camera_right/camera_right/color/image_raw/compressed',
+}
 
 
 class TeleopBandwidthMonitor(Node):
@@ -49,6 +53,12 @@ class TeleopBandwidthMonitor(Node):
         self.declare_parameter('usb_wrist_right_depth_enabled', True)
         self.declare_parameter('usb_wrist_left_color_enabled', True)
         self.declare_parameter('usb_wrist_right_color_enabled', True)
+        self.declare_parameter(
+            'wrist_left_color_compressed_topic',
+            DEFAULT_EXPECTED_TOPICS['wrist_left_color'])
+        self.declare_parameter(
+            'wrist_right_color_compressed_topic',
+            DEFAULT_EXPECTED_TOPICS['wrist_right_color'])
 
         self.stream_stats_topic = str(
             self.get_parameter('stream_stats_topic').value).strip()
@@ -81,6 +91,12 @@ class TeleopBandwidthMonitor(Node):
             self.network_interface = self._detect_network_interface()
         self.last_tx_sample = None
         self.samples = {}
+        self.expected_topics = {
+            'wrist_left_color': str(
+                self.get_parameter('wrist_left_color_compressed_topic').value).strip(),
+            'wrist_right_color': str(
+                self.get_parameter('wrist_right_color_compressed_topic').value).strip(),
+        }
 
         self.create_subscription(
             String, self.stream_stats_topic, self._stream_stats_callback, 100)
@@ -91,7 +107,8 @@ class TeleopBandwidthMonitor(Node):
         self.get_logger().info(
             f'teleop bandwidth monitor: stats={self.stream_stats_topic}, '
             f'panel={self.panel_topic}, budget={self.available_mbps:.1f} Mbps, '
-            f'net_if={self.network_interface or "disabled"}')
+            f'net_if={self.network_interface or "disabled"}, '
+            f'color_topics={self.expected_topics}')
 
     def _as_bool(self, value):
         if isinstance(value, bool):
@@ -170,29 +187,36 @@ class TeleopBandwidthMonitor(Node):
         self.samples[name] = samples
         if not samples or now - samples[-1]['t'] > self.stale_timeout_s:
             latest = samples[-1] if samples else {}
+            topic = latest.get('topic') or self.expected_topics.get(name, '')
+            publisher_count = self.count_publishers(topic) if topic else None
             return {
                 'fresh': False,
+                'has_samples': bool(samples),
                 'fps': 0.0,
                 'mbps': 0.0,
                 'bytes_per_frame': int(latest.get('bytes', 0) or 0),
                 'width': latest.get('width'),
                 'height': latest.get('height'),
                 'jpeg_quality': latest.get('jpeg_quality'),
-                'topic': latest.get('topic', ''),
+                'topic': topic,
+                'publishers': publisher_count,
             }
 
         duration = max(min(self.window_s, now - samples[0]['t']), 0.2)
         total_bytes = sum(sample['bytes'] for sample in samples)
         latest = samples[-1]
+        topic = latest.get('topic') or self.expected_topics.get(name, '')
         return {
             'fresh': True,
+            'has_samples': True,
             'fps': len(samples) / duration,
             'mbps': total_bytes * 8.0 / duration / 1e6,
             'bytes_per_frame': total_bytes / max(len(samples), 1),
             'width': latest.get('width'),
             'height': latest.get('height'),
             'jpeg_quality': latest.get('jpeg_quality'),
-            'topic': latest.get('topic', ''),
+            'topic': topic,
+            'publishers': self.count_publishers(topic) if topic else None,
         }
 
     def _publish_panel(self, payload):
@@ -262,7 +286,7 @@ class TeleopBandwidthMonitor(Node):
         y = int(round(168 * scale))
         row_step = int(round(34 * scale))
         for name, label in STREAM_ROWS:
-            self._draw_stream_row(image, label, streams.get(name) or {}, y, scale)
+            self._draw_stream_row(image, name, label, streams.get(name) or {}, y, scale)
             y += row_step
 
         self._put_text(
@@ -288,7 +312,7 @@ class TeleopBandwidthMonitor(Node):
             )
         cv2.rectangle(image, (x, y), (x + width, y + height), (160, 168, 176), 1)
 
-    def _draw_stream_row(self, image, label, stream, y, scale):
+    def _draw_stream_row(self, image, name, label, stream, y, scale):
         def line(value):
             return max(int(round(value * scale)), 1)
         fresh = bool(stream.get('fresh'))
@@ -302,11 +326,13 @@ class TeleopBandwidthMonitor(Node):
             quality = stream.get('jpeg_quality')
             res = f'{width}x{height}' if width and height else '--'
             q_text = f'Q{int(quality)}' if quality is not None else 'Q--'
-            fps_state = 'LOW FPS' if fps < self.target_fps * 0.8 else 'OK'
+            target_fps = self._target_fps_for_stream(name)
+            fps_state = 'LOW FPS' if fps < target_fps * 0.8 else 'OK'
             text = f'{label:<7} {fps:4.1f}Hz  {mbps:5.1f}M  {res:<9} {q_text} {fps_state}'
             bar_color = self._usage_color(usage)
         else:
-            text = f'{label:<7} -- Hz    -- M     STALE'
+            state = self._stale_state_text(stream)
+            text = f'{label:<7} -- Hz    -- M     {state}'
             usage = 0.0
             bar_color = (86, 90, 98)
         self._put_text(
@@ -320,6 +346,27 @@ class TeleopBandwidthMonitor(Node):
         if fill_width > 0:
             cv2.rectangle(image, (x, y_top), (x + fill_width, y_bottom), bar_color, -1)
         cv2.rectangle(image, (x, y_top), (x + bar_width, y_bottom), (130, 138, 148), line(1))
+
+    def _stale_state_text(self, stream):
+        publishers = stream.get('publishers')
+        if publishers == 0:
+            return 'NO PUB'
+        if publishers and not stream.get('has_samples'):
+            return 'NO STATS'
+        return 'STALE'
+
+    def _target_fps_for_stream(self, name):
+        profile_param_by_name = {
+            'wrist_left': 'usb_wrist_left_depth_profile',
+            'wrist_right': 'usb_wrist_right_depth_profile',
+            'wrist_left_color': 'usb_wrist_left_color_profile',
+            'wrist_right_color': 'usb_wrist_right_color_profile',
+        }
+        profile_param = profile_param_by_name.get(name)
+        if not profile_param:
+            return self.target_fps
+        _, _, fps = self._parse_camera_profile(self.get_parameter(profile_param).value)
+        return fps if fps > 0.0 else self.target_fps
 
     def _usage_color(self, usage_percent):
         if usage_percent >= 90.0:

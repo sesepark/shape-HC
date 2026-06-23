@@ -489,20 +489,17 @@ class OperatorDrivePanel(Node):
             self._clear_motion('NOT FOCUSED - STOPPED')
             return False
         if not self._mux_connected():
-            self.status_text = 'LOCKED / MUX OFF'
-            self._set_drive_enabled(False)
-            return False
+            self.status_text = 'DRIVE ON - WAITING FOR MUX'
+            self._update_display()
         return True
 
     def _set_drive_enabled(self, enabled):
-        if enabled and not self._mux_connected():
-            self.drive_enabled = False
-            self._clear_motion('LOCKED / MUX OFF')
-            self._publish_enabled()
-            self._update_display()
-            return
         self.drive_enabled = bool(enabled)
-        self._clear_motion('DRIVE ON' if self.drive_enabled else 'LOCKED')
+        if self.drive_enabled and not self._mux_connected():
+            status_text = 'DRIVE ON - WAITING FOR MUX'
+        else:
+            status_text = 'DRIVE ON' if self.drive_enabled else 'LOCKED'
+        self._clear_motion(status_text)
         self._publish_enabled()
         self._update_display()
 
@@ -609,7 +606,10 @@ class OperatorDrivePanel(Node):
             self.focus_var.set('NOT FOCUSED - CLICK PANEL')
             self.focus_label.configure(bg='#7a5a2d')
 
-        if self.drive_enabled:
+        if self.drive_enabled and not mux_connected:
+            drive_text = 'DRIVE ON - WAITING FOR MUX'
+            drive_bg = '#6d5228'
+        elif self.drive_enabled:
             drive_text = 'DRIVE ON - MONITOR CONTROL'
             drive_bg = '#2d7d4c'
         elif mux_connected:

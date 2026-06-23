@@ -196,6 +196,7 @@ def generate_launch_description():
             'overlay_topic': LaunchConfiguration('overlay_topic'),
             'compressed_topic': LaunchConfiguration('compressed_topic'),
             'assist_topic': LaunchConfiguration('assist_topic'),
+            'color_compressed_topic': LaunchConfiguration('right_color_compressed_topic'),
             'base_compressed_topic': LaunchConfiguration('base_compressed_topic'),
             'center_distance_topic': LaunchConfiguration('center_distance_topic'),
             'metrics_topic': LaunchConfiguration('metrics_topic'),
@@ -256,6 +257,7 @@ def generate_launch_description():
             'overlay_topic': LaunchConfiguration('left_overlay_topic'),
             'compressed_topic': LaunchConfiguration('left_compressed_topic'),
             'assist_topic': LaunchConfiguration('left_assist_topic'),
+            'color_compressed_topic': LaunchConfiguration('left_color_compressed_topic'),
             'base_compressed_topic': LaunchConfiguration('left_base_compressed_topic'),
             'center_distance_topic': LaunchConfiguration('left_center_distance_topic'),
             'metrics_topic': LaunchConfiguration('left_metrics_topic'),
@@ -363,6 +365,10 @@ def generate_launch_description():
             'usb_wrist_right_color_profile': LaunchConfiguration('right_color_profile'),
             'usb_wrist_left_color_enabled': LaunchConfiguration('enable_left_color'),
             'usb_wrist_right_color_enabled': LaunchConfiguration('enable_right_color'),
+            'wrist_left_color_compressed_topic': LaunchConfiguration(
+                'left_color_compressed_topic'),
+            'wrist_right_color_compressed_topic': LaunchConfiguration(
+                'right_color_compressed_topic'),
         }],
     )
 
@@ -424,10 +430,10 @@ def generate_launch_description():
             default_value=wrist_high_value('480,270,30', '640,480,30')),
         DeclareLaunchArgument(
             'left_color_profile',
-            default_value=wrist_high_value('848,480,5', '640,480,30')),
+            default_value=wrist_high_value('848,480,10', '640,480,30')),
         DeclareLaunchArgument(
             'right_color_profile',
-            default_value=wrist_high_value('848,480,5', '640,480,30')),
+            default_value=wrist_high_value('848,480,10', '640,480,30')),
         DeclareLaunchArgument('left_wrist_serial_no', default_value=left_wrist_serial_no),
         DeclareLaunchArgument('right_wrist_serial_no', default_value=right_wrist_serial_no),
         DeclareLaunchArgument(
@@ -438,12 +444,14 @@ def generate_launch_description():
             default_value=profile_value('true', 'true', 'true', 'true')),
         DeclareLaunchArgument('enable_left_align_depth', default_value='false'),
         DeclareLaunchArgument('enable_right_align_depth', default_value='false'),
-        DeclareLaunchArgument('right_wrist_start_delay_s', default_value='8.0'),
+        DeclareLaunchArgument('right_wrist_start_delay_s', default_value='15.0'),
         DeclareLaunchArgument(
             'depth_topic',
             default_value='/camera_right/camera_right/depth/image_rect_raw'),
         DeclareLaunchArgument(
-            'base_image_topic', default_value='/camera_right/camera_right/color/image_raw'),
+            'base_image_topic',
+            default_value='',
+            description='Deprecated and ignored; raw wrist color subscriptions stay disabled.'),
         DeclareLaunchArgument(
             'overlay_topic', default_value='/teleop/wrist_right/depth_overlay'),
         DeclareLaunchArgument(
@@ -451,7 +459,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'assist_topic', default_value='/teleop/wrist_right/depth_assist/compressed'),
         DeclareLaunchArgument(
-            'base_compressed_topic', default_value='/teleop/wrist_right/color/compressed'),
+            'right_color_compressed_topic',
+            default_value='/camera_right/camera_right/color/image_raw/compressed'),
+        DeclareLaunchArgument(
+            'base_compressed_topic',
+            default_value='/teleop/wrist_right/color/compressed',
+            description='Deprecated and ignored; use right_color_compressed_topic.'),
         DeclareLaunchArgument(
             'center_distance_topic', default_value='/teleop/wrist_right/center_distance_m'),
         DeclareLaunchArgument(
@@ -460,7 +473,9 @@ def generate_launch_description():
             'left_depth_topic',
             default_value='/camera_left/camera_left/depth/image_rect_raw'),
         DeclareLaunchArgument(
-            'left_base_image_topic', default_value='/camera_left/camera_left/color/image_raw'),
+            'left_base_image_topic',
+            default_value='',
+            description='Deprecated and ignored; raw wrist color subscriptions stay disabled.'),
         DeclareLaunchArgument(
             'left_overlay_topic', default_value='/teleop/wrist_left/depth_overlay'),
         DeclareLaunchArgument(
@@ -468,7 +483,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'left_assist_topic', default_value='/teleop/wrist_left/depth_assist/compressed'),
         DeclareLaunchArgument(
-            'left_base_compressed_topic', default_value='/teleop/wrist_left/color/compressed'),
+            'left_color_compressed_topic',
+            default_value='/camera_left/camera_left/color/image_raw/compressed'),
+        DeclareLaunchArgument(
+            'left_base_compressed_topic',
+            default_value='/teleop/wrist_left/color/compressed',
+            description='Deprecated and ignored; use left_color_compressed_topic.'),
         DeclareLaunchArgument(
             'left_center_distance_topic', default_value='/teleop/wrist_left/center_distance_m'),
         DeclareLaunchArgument(
@@ -479,10 +499,14 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'publish_raw_overlay',
             default_value=profile_value('false', 'false', 'false', 'true')),
-        DeclareLaunchArgument('subscribe_base_image', default_value='false'),
+        DeclareLaunchArgument(
+            'subscribe_base_image',
+            default_value='false',
+            description='Deprecated and ignored; raw wrist color subscriptions stay disabled.'),
         DeclareLaunchArgument(
             'publish_base_compressed',
-            default_value='false'),
+            default_value='false',
+            description='Deprecated and ignored; use RealSense compressed color transport.'),
         DeclareLaunchArgument('base_compressed_fps', default_value='5.0'),
         DeclareLaunchArgument('base_compressed_jpeg_quality', default_value='60'),
         DeclareLaunchArgument('publish_metrics', default_value='true'),

@@ -58,9 +58,9 @@ local_parameters = [
      'description': 'left wrist depth stream profile'},
     {'name': 'depth_module.depth_profile2', 'default': '480,270,30',
      'description': 'right wrist depth stream profile'},
-    {'name': 'depth_module.color_profile1', 'default': '848,480,5',
+    {'name': 'depth_module.color_profile1', 'default': '848,480,10',
      'description': 'left wrist color stream profile'},
-    {'name': 'depth_module.color_profile2', 'default': '848,480,5',
+    {'name': 'depth_module.color_profile2', 'default': '848,480,10',
      'description': 'right wrist color stream profile'},
     {'name': 'enable_depth1', 'default': 'true',
      'description': 'enable left wrist depth stream'},
@@ -82,7 +82,7 @@ local_parameters = [
      'description': 'keep left RealSense colorizer disabled for teleoperation'},
     {'name': 'colorizer.enable2', 'default': 'false',
      'description': 'keep right RealSense colorizer disabled for teleoperation'},
-    {'name': 'right_wrist_start_delay_s', 'default': '8.0',
+    {'name': 'right_wrist_start_delay_s', 'default': '15.0',
      'description': 'delay before launching the right wrist camera'},
 ]
 

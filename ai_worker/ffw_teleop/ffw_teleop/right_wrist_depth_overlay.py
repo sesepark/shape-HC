@@ -18,10 +18,13 @@ class WristDepthOverlay(Node):
         super().__init__('wrist_depth_overlay')
 
         self.declare_parameter('depth_topic', '/camera_right/camera_right/depth/image_rect_raw')
-        self.declare_parameter('base_image_topic', '/camera_right/camera_right/color/image_raw')
+        self.declare_parameter('base_image_topic', '')
         self.declare_parameter('overlay_topic', '/teleop/wrist_right/depth_overlay')
         self.declare_parameter('compressed_topic', '/teleop/wrist_right/depth_overlay/compressed')
         self.declare_parameter('assist_topic', '/teleop/wrist_right/depth_assist/compressed')
+        self.declare_parameter(
+            'color_compressed_topic',
+            '/camera_right/camera_right/color/image_raw/compressed')
         self.declare_parameter('base_compressed_topic', '/teleop/wrist_right/color/compressed')
         self.declare_parameter('center_distance_topic', '/teleop/wrist_right/center_distance_m')
         self.declare_parameter('metrics_topic', '/teleop/wrist_right/depth_metrics')
@@ -74,6 +77,8 @@ class WristDepthOverlay(Node):
         self.overlay_topic = self.get_parameter('overlay_topic').value
         self.compressed_topic = self.get_parameter('compressed_topic').value
         self.assist_topic = self.get_parameter('assist_topic').value
+        self.color_compressed_topic = str(
+            self.get_parameter('color_compressed_topic').value).strip()
         self.base_compressed_topic = self.get_parameter('base_compressed_topic').value
         self.center_distance_topic = self.get_parameter('center_distance_topic').value
         self.metrics_topic = self.get_parameter('metrics_topic').value
@@ -101,7 +106,8 @@ class WristDepthOverlay(Node):
         self.publish_base_compressed = False
         if requested_base_compressed:
             self.get_logger().warn(
-                'wrist color relay is disabled; subscribe to RealSense compressed transport')
+                'publish_base_compressed is deprecated and ignored; '
+                'use the RealSense compressed color topic directly')
         self.base_compressed_fps = max(
             float(self.get_parameter('base_compressed_fps').value), 0.1)
         self.base_compressed_jpeg_quality = int(np.clip(
@@ -190,7 +196,8 @@ class WristDepthOverlay(Node):
             f'base={self.base_image_topics if self.subscribe_base_image else "disabled"} '
             f'-> raw={self.overlay_topic if self.publish_raw_overlay else "disabled"}, '
             f'overlay_compressed={self.compressed_topic}, assist={self.assist_topic}, '
-            f'base_compressed={self.base_compressed_topic if self.base_compressed_pub else "disabled"}, '
+            f'color_compressed_external={self.color_compressed_topic or "disabled"}, '
+            f'base_compressed_relay=deprecated-disabled, '
             f'stats={self.stream_stats_topic or "disabled"} '
             f'view={self.view_preset} rot={self.view_rotate_deg:.0f}deg '
             f'flip_h={self.view_flip_horizontal} flip_v={self.view_flip_vertical} '

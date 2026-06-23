@@ -12,6 +12,7 @@ from rclpy.qos import DurabilityPolicy
 from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage
+from std_msgs.msg import String
 
 
 DEFAULT_STREAMS = [
@@ -28,6 +29,10 @@ DEFAULT_STREAMS = [
 DEFAULT_MISSING_IMAGE_HINTS = [
     'L COLOR|no left compressed color stream - check D405 USB/profile',
     'R COLOR|no right compressed color stream - check D405 USB/profile',
+]
+DEFAULT_STREAM_STATS_STREAMS = [
+    'L COLOR|wrist_left_color',
+    'R COLOR|wrist_right_color',
 ]
 
 TOOLBAR_HEIGHT = 42
@@ -62,6 +67,8 @@ class OperatorImageViewer(Node):
         self.declare_parameter('show_hz', 20.0)
         self.declare_parameter('max_stale_sec', 0.75)
         self.declare_parameter('missing_image_hints', DEFAULT_MISSING_IMAGE_HINTS)
+        self.declare_parameter('stream_stats_topic', '/teleop/stream_stats')
+        self.declare_parameter('stream_stats_streams', DEFAULT_STREAM_STATS_STREAMS)
         self.declare_parameter('window_x', 1520)
         self.declare_parameter('window_y', 40)
         self.declare_parameter('headless_ok', True)
@@ -94,6 +101,10 @@ class OperatorImageViewer(Node):
         self.streams = self._parse_streams(self.get_parameter('streams').value)
         self.missing_image_hints = self._parse_hints(
             self.get_parameter('missing_image_hints').value)
+        self.stream_stats_topic = str(
+            self.get_parameter('stream_stats_topic').value).strip()
+        self.stream_stats_names = self._parse_hints(
+            self.get_parameter('stream_stats_streams').value)
         self.stream_by_name = {stream['name']: stream for stream in self.streams}
         self.frames = {
             stream['name']: {
@@ -111,6 +122,9 @@ class OperatorImageViewer(Node):
         self.gui_available = False
         self._image_subscriptions = []
         self._last_window_sync_s = 0.0
+        self.stream_stats_pub = None
+        if self.stream_stats_topic and self.stream_stats_names:
+            self.stream_stats_pub = self.create_publisher(String, self.stream_stats_topic, 10)
 
         self._load_layout()
 
@@ -132,7 +146,8 @@ class OperatorImageViewer(Node):
         self.get_logger().info(
             f'operator image viewer active: window={self.window_title!r}, '
             f'streams={len(self.streams)}, canvas={self.canvas_width}x{self.canvas_height}, '
-            f'layout={self.layout_store_path or "disabled"}, gui={self.gui_available}')
+            f'layout={self.layout_store_path or "disabled"}, gui={self.gui_available}, '
+            f'color_stats={self.stream_stats_topic if self.stream_stats_pub else "disabled"}')
 
     def destroy_node(self):
         if self.gui_available:
@@ -408,7 +423,28 @@ class OperatorImageViewer(Node):
                 return
             self.frames[name]['image'] = image
             self.frames[name]['stamp'] = time.time()
+            self._publish_stream_stats(name, msg, image)
         return callback
+
+    def _publish_stream_stats(self, name, msg, image):
+        if self.stream_stats_pub is None:
+            return
+        stats_name = self.stream_stats_names.get(name)
+        if not stats_name:
+            return
+        height, width = image.shape[:2]
+        payload = {
+            'stamp_sec': time.time(),
+            'name': stats_name,
+            'topic': self.frames.get(name, {}).get('topic', ''),
+            'bytes': len(msg.data),
+            'width': int(width),
+            'height': int(height),
+            'jpeg_quality': None,
+        }
+        out = String()
+        out.data = json.dumps(payload, sort_keys=True)
+        self.stream_stats_pub.publish(out)
 
     def _show(self):
         if not self.gui_available:
@@ -588,7 +624,7 @@ class OperatorImageViewer(Node):
         stale = stamp <= 0.0 or (now - stamp) > self.max_stale_sec
         if image is None:
             tile = np.full((height, width, 3), (34, 36, 42), dtype=np.uint8)
-            hint = self.missing_image_hints.get(name, 'waiting for image')
+            hint = self._missing_image_hint(name, stream)
             self._put_center(tile, hint, (166, 172, 180), 0.58)
         else:
             tile = self._fit_image(image, width, height)
@@ -605,6 +641,13 @@ class OperatorImageViewer(Node):
         self._put_text(tile, age, (max(width - 62, 48), 21), 0.46, (190, 196, 204), 1)
         self._draw_resize_handle(tile)
         return tile
+
+    def _missing_image_hint(self, name, stream):
+        topic = stream.get('topic') or ''
+        publisher_count = self.count_publishers(topic) if topic else 0
+        if publisher_count <= 0:
+            return 'no compressed publisher'
+        return self.missing_image_hints.get(name, 'waiting for image')
 
     def _fit_image(self, image, target_width, target_height):
         src_h, src_w = image.shape[:2]

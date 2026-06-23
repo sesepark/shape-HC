@@ -42,7 +42,7 @@ local_parameters = [
      'description': 'choose right wrist camera by serial number'},
     {'name': 'depth_module.depth_profile2', 'default': '480,270,15',
      'description': 'right wrist depth stream profile'},
-    {'name': 'depth_module.color_profile2', 'default': '848,480,5',
+    {'name': 'depth_module.color_profile2', 'default': '848,480,10',
      'description': 'right wrist color stream profile'},
     {'name': 'enable_depth2', 'default': 'true',
      'description': 'enable right wrist depth stream'},
