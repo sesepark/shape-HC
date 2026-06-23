@@ -323,7 +323,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_leader', default_value='true'),
         DeclareLaunchArgument('start_rviz', default_value='true'),
         DeclareLaunchArgument('rviz_gl_mode', default_value='native'),
-        DeclareLaunchArgument('start_mission_control', default_value='true'),
+        DeclareLaunchArgument('start_mission_control', default_value='false'),
         DeclareLaunchArgument('start_operator_image_viewer', default_value='true'),
         DeclareLaunchArgument('start_operator_drive_panel', default_value='true'),
         DeclareLaunchArgument('mission_keyboard_drive_enabled', default_value='false'),

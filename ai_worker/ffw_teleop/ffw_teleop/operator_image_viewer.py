@@ -17,7 +17,6 @@ from std_msgs.msg import String
 
 DEFAULT_STREAMS = [
     'STATUS|/teleop/operator_status/compressed',
-    'MISSION|/teleop/mission_panel/compressed',
     'BANDWIDTH|/teleop/bandwidth_monitor/compressed',
     'ZED|/teleop/zed/depth_assist/compressed',
     'L WRIST|/teleop/wrist_left/depth_assist/compressed',

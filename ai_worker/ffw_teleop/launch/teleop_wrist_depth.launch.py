@@ -151,6 +151,8 @@ def generate_launch_description():
             'stream_stats_topic': LaunchConfiguration('stream_stats_topic'),
             'camera_perf_topic': LaunchConfiguration('camera_perf_topic'),
             'stream_stats_name': 'zed',
+            'operator_ok_topic': LaunchConfiguration('operator_ok_topic'),
+            'ok_overlay_duration_s': LaunchConfiguration('ok_overlay_duration_s'),
             'assist_mode': LaunchConfiguration('zed_assist_mode'),
             'publish_fps': LaunchConfiguration('zed_assist_fps'),
             'jpeg_quality': LaunchConfiguration('zed_assist_jpeg_quality'),
@@ -410,6 +412,8 @@ def generate_launch_description():
             'stream_stats_topic', default_value='/teleop/stream_stats'),
         DeclareLaunchArgument(
             'camera_perf_topic', default_value='/teleop/camera_perf'),
+        DeclareLaunchArgument('operator_ok_topic', default_value='/teleop/operator_ok'),
+        DeclareLaunchArgument('ok_overlay_duration_s', default_value='3.0'),
         DeclareLaunchArgument('zed_assist_mode', default_value='tf_header'),
         DeclareLaunchArgument('zed_assist_fps', default_value='30.0'),
         DeclareLaunchArgument('zed_assist_jpeg_quality', default_value='88'),

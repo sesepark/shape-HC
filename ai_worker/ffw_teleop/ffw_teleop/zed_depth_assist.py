@@ -33,6 +33,8 @@ class ZedDepthAssist(Node):
         self.declare_parameter('stream_stats_topic', '/teleop/stream_stats')
         self.declare_parameter('stream_stats_name', 'zed')
         self.declare_parameter('camera_perf_topic', '/teleop/camera_perf')
+        self.declare_parameter('operator_ok_topic', '/teleop/operator_ok')
+        self.declare_parameter('ok_overlay_duration_s', 3.0)
         self.declare_parameter('assist_mode', 'tf_header')
         self.declare_parameter('publish_fps', 30.0)
         self.declare_parameter('jpeg_quality', 88)
@@ -96,6 +98,9 @@ class ZedDepthAssist(Node):
         self.stream_stats_name = str(
             self.get_parameter('stream_stats_name').value).strip() or 'zed'
         self.camera_perf_topic = str(self.get_parameter('camera_perf_topic').value).strip()
+        self.operator_ok_topic = str(self.get_parameter('operator_ok_topic').value).strip()
+        self.ok_overlay_duration_s = max(
+            float(self.get_parameter('ok_overlay_duration_s').value), 0.1)
         self.assist_mode = str(self.get_parameter('assist_mode').value).strip().lower()
         if self.assist_mode not in ('tf_header', 'tf_only', 'depth'):
             self.get_logger().warn(
@@ -166,6 +171,7 @@ class ZedDepthAssist(Node):
         self.latest_camera_info = None
         self.latest_intrinsics = None
         self.latest_camera_info_topic = None
+        self.ok_overlay_until_s = 0.0
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -194,6 +200,10 @@ class ZedDepthAssist(Node):
         self.camera_perf_pub = None
         if self.camera_perf_topic:
             self.camera_perf_pub = self.create_publisher(String, self.camera_perf_topic, 10)
+        self.operator_ok_sub = None
+        if self.operator_ok_topic:
+            self.operator_ok_sub = self.create_subscription(
+                String, self.operator_ok_topic, self._operator_ok_callback, 10)
 
         self.get_logger().info(
             f'ZED arm-relative depth assist: mode={self.assist_mode}, '
@@ -201,6 +211,19 @@ class ZedDepthAssist(Node):
             f'base={self.base_image_topic}, info={self.camera_info_topics} '
             f'-> {self.assist_topic} at {self.publish_fps:.1f} fps, '
             f'stats={self.stream_stats_topic or "disabled"}')
+
+    def _operator_ok_callback(self, msg):
+        duration_s = self.ok_overlay_duration_s
+        try:
+            payload = json.loads(msg.data)
+        except json.JSONDecodeError:
+            payload = {}
+        if isinstance(payload, dict):
+            try:
+                duration_s = max(float(payload.get('duration_s', duration_s)), 0.1)
+            except (TypeError, ValueError):
+                duration_s = self.ok_overlay_duration_s
+        self.ok_overlay_until_s = time.time() + duration_s
 
     def _string_list(self, value):
         if value is None:
@@ -1044,6 +1067,7 @@ class ZedDepthAssist(Node):
             message = str(metrics.get('message') or '')
             if message:
                 self._put_text(image, message[:70], (8, 63), 0.48)
+            self._draw_ok_overlay(image)
             return image
 
         projections = draw.get('projections') or {}
@@ -1104,7 +1128,32 @@ class ZedDepthAssist(Node):
                 (8, 61),
                 0.50,
             )
+        self._draw_ok_overlay(image)
         return image
+
+    def _draw_ok_overlay(self, image):
+        if time.time() >= self.ok_overlay_until_s:
+            return
+        height, width = image.shape[:2]
+        overlay = image.copy()
+        cv2.rectangle(overlay, (0, 0), (width - 1, height - 1), (20, 120, 45), -1)
+        cv2.addWeighted(overlay, 0.42, image, 0.58, 0.0, image)
+
+        text = 'OK'
+        scale = max(min(width, height) / 130.0, 1.5)
+        thickness = max(int(round(scale * 4.0)), 4)
+        (text_w, text_h), baseline = cv2.getTextSize(
+            text, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
+        origin = (
+            max((width - text_w) // 2, 0),
+            max((height + text_h) // 2 - baseline, text_h),
+        )
+        cv2.putText(
+            image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,
+            (0, 0, 0), thickness + 6, cv2.LINE_AA)
+        cv2.putText(
+            image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,
+            (255, 255, 255), thickness, cv2.LINE_AA)
 
     def _put_text(self, image, text, origin, scale):
         cv2.putText(image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale,
