@@ -26,6 +26,18 @@ joystick_controller:
     description: "List of state interfaces to reverse after normalization",
     read_only: true,
   }
+  sensorxel_l_joy_axis_offsets: {
+    type: double_array,
+    default_value: [0.0, 0.0, 0.0],
+    description: "Normalized per-axis offsets added after reverse calibration for left joystick",
+    read_only: true,
+  }
+  sensorxel_r_joy_axis_offsets: {
+    type: double_array,
+    default_value: [0.0, 0.0, 0.0],
+    description: "Normalized per-axis offsets added after reverse calibration for right joystick",
+    read_only: true,
+  }
   joystick_calibration_min: {
     type: double,
     default_value: 0.0,

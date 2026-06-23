@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <string>
 #include <stdexcept>
 
@@ -115,6 +116,14 @@ std::vector<double> JoystickController::read_and_normalize_sensor_values(size_t 
         interface_name) != reverse_interfaces.end())
     {
       normalized_value = -normalized_value;
+    }
+
+    const auto & axis_offsets = sensor_axis_offsets_.at(sensorxel_joy_names_[sensor_idx]);
+    if (!is_tact_switch && j < axis_offsets.size()) {
+      normalized_value = std::clamp(normalized_value + axis_offsets[j], -1.0, 1.0);
+      if (std::abs(normalized_value) < params_.deadzone) {
+        normalized_value = 0.0;
+      }
     }
 
     normalized_values[j] = normalized_value;
@@ -564,6 +573,14 @@ controller_interface::CallbackReturn JoystickController::on_configure(
     } else {
       // If parameter does not exist, initialize as empty vector
       sensor_reverse_interfaces_[sensor_name] = std::vector<std::string>();
+    }
+    // normalized axis offsets
+    std::string axis_offsets_param = sensor_name + "_axis_offsets";
+    if (get_node()->has_parameter(axis_offsets_param)) {
+      sensor_axis_offsets_[sensor_name] =
+        get_node()->get_parameter(axis_offsets_param).as_double_array();
+    } else {
+      sensor_axis_offsets_[sensor_name] = std::vector<double>(state_interface_types_.size(), 0.0);
     }
     // joint_trajectory_topic
     std::string topic_param = sensor_name + "_joint_trajectory_topic";

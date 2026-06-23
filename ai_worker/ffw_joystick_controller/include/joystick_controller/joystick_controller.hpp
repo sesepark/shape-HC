@@ -129,6 +129,7 @@ protected:
 
   std::map<std::string, std::vector<std::string>> sensor_controlled_joints_;
   std::map<std::string, std::vector<std::string>> sensor_reverse_interfaces_;
+  std::map<std::string, std::vector<double>> sensor_axis_offsets_;
   std::map<std::string, std::string> sensor_joint_trajectory_topic_;
   std::map<std::string, std::vector<double>> sensor_last_active_positions_;
   std::map<std::string,

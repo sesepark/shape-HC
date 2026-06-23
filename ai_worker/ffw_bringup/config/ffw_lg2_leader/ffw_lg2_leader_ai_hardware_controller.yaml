@@ -95,6 +95,14 @@
       sensorxel_l_joy_reverse_interfaces:
         - JOYSTICK Y VALUE
         - JOYSTICK X VALUE
+      sensorxel_l_joy_axis_offsets:
+        - 0.3493009868421053
+        - 0.0
+        - 0.0
+      sensorxel_r_joy_axis_offsets:
+        - 0.0
+        - 0.0
+        - 0.0
       joystick_calibration_min: 0.0
       joystick_calibration_center: 2048.0
       joystick_calibration_max: 4096.0
