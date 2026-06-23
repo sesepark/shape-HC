@@ -13,11 +13,9 @@ STREAM_ROWS = (
     ('zed', 'ZED'),
     ('wrist_left', 'L WRIST'),
     ('wrist_right', 'R WRIST'),
-    ('wrist_left_color', 'L COLOR'),
     ('wrist_right_color', 'R COLOR'),
 )
 DEFAULT_EXPECTED_TOPICS = {
-    'wrist_left_color': '/camera_left/camera_left/color/image_raw/compressed',
     'wrist_right_color': '/camera_right/camera_right/color/image_raw/compressed',
 }
 
@@ -43,7 +41,7 @@ class TeleopBandwidthMonitor(Node):
         self.declare_parameter('usb_estimate_enabled', True)
         self.declare_parameter('usb_available_mbps', 320.0)
         self.declare_parameter('usb_depth_bytes_per_pixel', 2.0)
-        self.declare_parameter('usb_color_bytes_per_pixel', 2.0)
+        self.declare_parameter('usb_color_bytes_per_pixel', 3.0)
         self.declare_parameter('usb_overhead_factor', 1.15)
         self.declare_parameter('usb_wrist_left_depth_profile', '')
         self.declare_parameter('usb_wrist_right_depth_profile', '')
@@ -53,9 +51,6 @@ class TeleopBandwidthMonitor(Node):
         self.declare_parameter('usb_wrist_right_depth_enabled', True)
         self.declare_parameter('usb_wrist_left_color_enabled', True)
         self.declare_parameter('usb_wrist_right_color_enabled', True)
-        self.declare_parameter(
-            'wrist_left_color_compressed_topic',
-            DEFAULT_EXPECTED_TOPICS['wrist_left_color'])
         self.declare_parameter(
             'wrist_right_color_compressed_topic',
             DEFAULT_EXPECTED_TOPICS['wrist_right_color'])
@@ -92,8 +87,6 @@ class TeleopBandwidthMonitor(Node):
         self.last_tx_sample = None
         self.samples = {}
         self.expected_topics = {
-            'wrist_left_color': str(
-                self.get_parameter('wrist_left_color_compressed_topic').value).strip(),
             'wrist_right_color': str(
                 self.get_parameter('wrist_right_color_compressed_topic').value).strip(),
         }

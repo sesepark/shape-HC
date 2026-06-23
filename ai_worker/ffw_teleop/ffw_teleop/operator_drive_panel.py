@@ -47,6 +47,7 @@ class OperatorDrivePanel(Node):
         self.declare_parameter('show_hz', 30.0)
         self.declare_parameter('keyboard_cmd_vel_topic', '/teleop/keyboard_cmd_vel')
         self.declare_parameter('keyboard_enabled_topic', '/teleop/keyboard_drive/enabled')
+        self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('cmd_vel_mux_status_topic', '/teleop/cmd_vel_mux/status')
         self.declare_parameter('keyboard_linear_x_mps', 0.08)
         self.declare_parameter('keyboard_linear_y_mps', 0.08)
@@ -70,6 +71,7 @@ class OperatorDrivePanel(Node):
             self.get_parameter('keyboard_cmd_vel_topic').value).strip()
         self.keyboard_enabled_topic = str(
             self.get_parameter('keyboard_enabled_topic').value).strip()
+        self.cmd_vel_topic = str(self.get_parameter('cmd_vel_topic').value).strip()
         self.cmd_vel_mux_status_topic = str(
             self.get_parameter('cmd_vel_mux_status_topic').value).strip()
         self.keyboard_linear_x_mps = max(
@@ -172,7 +174,15 @@ class OperatorDrivePanel(Node):
             (self._now_s() - self.last_mux_status_time_s) <= 1.0
         )
 
+    def _cmd_vel_publisher_count(self):
+        return self.count_publishers(self.cmd_vel_topic) if self.cmd_vel_topic else 0
+
+    def _cmd_vel_conflict(self):
+        return self._cmd_vel_publisher_count() > 1
+
     def _owner_display(self, mux_connected):
+        if self._cmd_vel_conflict():
+            return 'CMD_VEL CONFLICT - MULTIPLE PUBLISHERS', '#9b3f3f'
         if not mux_connected:
             return 'OWNER: MUX OFF / NOT CONNECTED', '#6d5228'
         if not self._mux_status_fresh():
@@ -190,13 +200,15 @@ class OperatorDrivePanel(Node):
         return 'OWNER: UNKNOWN', '#6d5228'
 
     def _mux_text(self, mux_connected):
+        cmd_vel_publishers = self._cmd_vel_publisher_count()
+        cmd_vel_text = f'cmd_vel pubs={cmd_vel_publishers}'
         if not mux_connected:
-            return 'OFF - launch start_cmd_vel_mux:=true'
+            return f'OFF - launch start_cmd_vel_mux:=true; {cmd_vel_text}'
         if not self._mux_status_fresh():
-            return 'connected, waiting status'
+            return f'connected, waiting status; {cmd_vel_text}'
         owner = self.last_mux_status.get('owner', '--')
         output_topic = self.last_mux_status.get('output_topic', '--')
-        return f'{owner} -> {output_topic}'
+        return f'{owner} -> {output_topic}; {cmd_vel_text}'
 
     def _init_window(self):
         if not os.environ.get('DISPLAY') and self.headless_ok:

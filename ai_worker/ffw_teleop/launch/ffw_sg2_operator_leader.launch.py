@@ -14,9 +14,7 @@ from launch.substitutions import Command
 from launch.substitutions import FindExecutable
 from launch.substitutions import LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution
-from launch.substitutions import PythonExpression
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
@@ -68,7 +66,6 @@ def generate_launch_description():
     keyboard_enabled_topic = LaunchConfiguration('keyboard_enabled_topic')
     mission_keyboard_drive_enabled = LaunchConfiguration('mission_keyboard_drive_enabled')
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
-    leader_cmd_vel_topic = LaunchConfiguration('leader_cmd_vel_topic')
     cmd_vel_mux_status_topic = LaunchConfiguration('cmd_vel_mux_status_topic')
     keyboard_linear_x_mps = LaunchConfiguration('keyboard_linear_x_mps')
     keyboard_linear_y_mps = LaunchConfiguration('keyboard_linear_y_mps')
@@ -106,14 +103,6 @@ def generate_launch_description():
         'ffw_lg2_leader',
         leader_controller_config,
     ])
-    joystick_cmd_vel_override = ParameterFile(
-        PathJoinSubstitution([
-            FindPackageShare('ffw_teleop'),
-            'config',
-            'ffw_lg2_leader_cmd_vel_override.yaml',
-        ]),
-        allow_substs=True,
-    )
 
     robot_description_content = ParameterValue(
         Command([
@@ -158,7 +147,7 @@ def generate_launch_description():
         package='controller_manager',
         executable='ros2_control_node',
         namespace=leader_namespace,
-        parameters=[robot_description, robot_controllers, joystick_cmd_vel_override],
+        parameters=[robot_description, robot_controllers],
         remappings=[
             ('~/robot_description', leader_robot_description_topic),
             ('robot_description', leader_robot_description_topic),
@@ -258,6 +247,7 @@ def generate_launch_description():
             'window_y': 560,
             'keyboard_cmd_vel_topic': keyboard_cmd_vel_topic,
             'keyboard_enabled_topic': keyboard_enabled_topic,
+            'cmd_vel_topic': cmd_vel_topic,
             'cmd_vel_mux_status_topic': cmd_vel_mux_status_topic,
             'keyboard_linear_x_mps': keyboard_linear_x_mps,
             'keyboard_linear_y_mps': keyboard_linear_y_mps,
@@ -293,7 +283,7 @@ def generate_launch_description():
             default_value='ffw_lg2_leader.urdf.xacro'),
         DeclareLaunchArgument(
             'leader_controller_config',
-            default_value='ffw_lg2_leader_ai_hardware_controller.yaml'),
+            default_value='ffw_lg2_leader_ai_hardware_controller_mux.yaml'),
         DeclareLaunchArgument('leader_left_port', default_value='/dev/left_leader'),
         DeclareLaunchArgument('leader_right_port', default_value='/dev/right_leader'),
         DeclareLaunchArgument('start_leader', default_value='true'),
@@ -311,17 +301,6 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'keyboard_enabled_topic', default_value='/teleop/keyboard_drive/enabled'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
-        DeclareLaunchArgument(
-            'leader_cmd_vel_topic',
-            default_value=PythonExpression([
-                "'",
-                LaunchConfiguration('joystick_cmd_vel_topic'),
-                "' if '",
-                LaunchConfiguration('start_cmd_vel_mux'),
-                "'.lower() == 'true' else '",
-                LaunchConfiguration('cmd_vel_topic'),
-                "'",
-            ])),
         DeclareLaunchArgument(
             'cmd_vel_mux_status_topic', default_value='/teleop/cmd_vel_mux/status'),
         DeclareLaunchArgument('keyboard_linear_x_mps', default_value='0.08'),
@@ -371,6 +350,15 @@ def generate_launch_description():
             default_value='~/.config/ffw_teleop/operator_screen_layout.json'),
         LogInfo(msg=['LG2 Leader controller config: ', leader_controller_config],
                 condition=IfCondition(start_leader)),
+        LogInfo(
+            msg=[
+                'LG2 Leader base route: joystick_controller -> ',
+                joystick_cmd_vel_topic,
+                ' -> teleop_cmd_vel_mux -> ',
+                cmd_vel_topic,
+            ],
+            condition=IfCondition(start_cmd_vel_mux),
+        ),
         LogInfo(msg=['LG2 Leader robot_description topic: ', leader_robot_description_topic],
                 condition=IfCondition(start_leader)),
         LogInfo(msg=['LG2 Leader left port: ', leader_left_port],

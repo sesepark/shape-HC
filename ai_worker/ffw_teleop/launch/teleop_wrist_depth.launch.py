@@ -365,8 +365,6 @@ def generate_launch_description():
             'usb_wrist_right_color_profile': LaunchConfiguration('right_color_profile'),
             'usb_wrist_left_color_enabled': LaunchConfiguration('enable_left_color'),
             'usb_wrist_right_color_enabled': LaunchConfiguration('enable_right_color'),
-            'wrist_left_color_compressed_topic': LaunchConfiguration(
-                'left_color_compressed_topic'),
             'wrist_right_color_compressed_topic': LaunchConfiguration(
                 'right_color_compressed_topic'),
         }],
@@ -430,15 +428,15 @@ def generate_launch_description():
             default_value=wrist_high_value('480,270,30', '640,480,30')),
         DeclareLaunchArgument(
             'left_color_profile',
-            default_value=wrist_high_value('848,480,10', '640,480,30')),
+            default_value=wrist_high_value('424,240,15', '640,480,30')),
         DeclareLaunchArgument(
             'right_color_profile',
-            default_value=wrist_high_value('848,480,10', '640,480,30')),
+            default_value=wrist_high_value('424,240,15', '640,480,30')),
         DeclareLaunchArgument('left_wrist_serial_no', default_value=left_wrist_serial_no),
         DeclareLaunchArgument('right_wrist_serial_no', default_value=right_wrist_serial_no),
         DeclareLaunchArgument(
             'enable_left_color',
-            default_value=profile_value('true', 'true', 'true', 'true')),
+            default_value=profile_value('false', 'false', 'false', 'true')),
         DeclareLaunchArgument(
             'enable_right_color',
             default_value=profile_value('true', 'true', 'true', 'true')),

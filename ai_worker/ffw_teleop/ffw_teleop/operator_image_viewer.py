@@ -22,16 +22,13 @@ DEFAULT_STREAMS = [
     'ZED|/teleop/zed/depth_assist/compressed',
     'L WRIST|/teleop/wrist_left/depth_assist/compressed',
     'R WRIST|/teleop/wrist_right/depth_assist/compressed',
-    'L COLOR|/camera_left/camera_left/color/image_raw/compressed',
     'R COLOR|/camera_right/camera_right/color/image_raw/compressed',
 ]
 
 DEFAULT_MISSING_IMAGE_HINTS = [
-    'L COLOR|no left compressed color stream - check D405 USB/profile',
     'R COLOR|no right compressed color stream - check D405 USB/profile',
 ]
 DEFAULT_STREAM_STATS_STREAMS = [
-    'L COLOR|wrist_left_color',
     'R COLOR|wrist_right_color',
 ]
 
@@ -645,9 +642,17 @@ class OperatorImageViewer(Node):
     def _missing_image_hint(self, name, stream):
         topic = stream.get('topic') or ''
         publisher_count = self.count_publishers(topic) if topic else 0
+        topic_text = self._short_topic(topic)
         if publisher_count <= 0:
-            return 'no compressed publisher'
-        return self.missing_image_hints.get(name, 'waiting for image')
+            return f'no compressed publisher\npubs=0 {topic_text}'
+        hint = self.missing_image_hints.get(name, 'waiting for image')
+        return f'{hint}\npubs={publisher_count} {topic_text}'
+
+    def _short_topic(self, topic, max_len=58):
+        topic = str(topic or '').strip()
+        if len(topic) <= max_len:
+            return topic
+        return '...' + topic[-max(max_len - 3, 1):]
 
     def _fit_image(self, image, target_width, target_height):
         src_h, src_w = image.shape[:2]
@@ -768,10 +773,18 @@ class OperatorImageViewer(Node):
         return rx <= x <= rx + width and ry <= y <= ry + height
 
     def _put_center(self, image, text, color, scale):
-        size, _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, 1)
-        x = max((image.shape[1] - size[0]) // 2, 4)
-        y = max((image.shape[0] + size[1]) // 2, 20)
-        self._put_text(image, text, (x, y), scale, color, 1)
+        lines = str(text).splitlines() or ['']
+        sizes = [
+            cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, scale, 1)[0]
+            for line in lines
+        ]
+        line_height = max((size[1] for size in sizes), default=14) + 8
+        total_height = line_height * len(lines)
+        y = max((image.shape[0] - total_height) // 2 + line_height, 20)
+        for line, size in zip(lines, sizes):
+            x = max((image.shape[1] - size[0]) // 2, 4)
+            self._put_text(image, line, (x, y), scale, color, 1)
+            y += line_height
 
     def _put_text(self, image, text, origin, scale, color, thickness):
         cv2.putText(

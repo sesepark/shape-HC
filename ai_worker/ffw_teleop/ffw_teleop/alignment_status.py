@@ -9,6 +9,7 @@ from nav_msgs.msg import Odometry
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool
@@ -130,10 +131,12 @@ class AlignmentStatus(Node):
             self._cmd_vel_callback)
         self._subscribe_if_topic(
             Float32, self.get_parameter('right_center_distance_topic').value,
-            lambda msg: self._center_distance_callback('right', msg))
+            lambda msg: self._center_distance_callback('right', msg),
+            qos_profile_sensor_data)
         self._subscribe_if_topic(
             Float32, self.get_parameter('left_center_distance_topic').value,
-            lambda msg: self._center_distance_callback('left', msg))
+            lambda msg: self._center_distance_callback('left', msg),
+            qos_profile_sensor_data)
         self._subscribe_if_topic(
             String, self.get_parameter('right_depth_metrics_topic').value,
             lambda msg: self._depth_metrics_callback('right', msg))
@@ -153,10 +156,10 @@ class AlignmentStatus(Node):
         self.get_logger().info(
             f'teleop practice event recording enabled: {self.practice_event_log_path}')
 
-    def _subscribe_if_topic(self, msg_type, topic, callback):
+    def _subscribe_if_topic(self, msg_type, topic, callback, qos=10):
         topic = str(topic).strip()
         if topic:
-            self.create_subscription(msg_type, topic, callback, 10)
+            self.create_subscription(msg_type, topic, callback, qos)
 
     def _as_bool(self, value):
         if isinstance(value, bool):
