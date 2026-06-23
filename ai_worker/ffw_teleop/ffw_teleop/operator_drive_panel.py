@@ -17,7 +17,7 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 
 
 PANEL_WIDTH = 560
-PANEL_HEIGHT = 860
+PANEL_HEIGHT = 940
 KEY_RELEASE_DEBOUNCE_MS = 60
 MOVE_ACTIONS = ('forward', 'backward', 'left', 'right', 'rot_left', 'rot_right')
 HEAD_ACTIONS = ('head_up', 'head_down', 'head_left', 'head_right')
@@ -83,6 +83,8 @@ class OperatorDrivePanel(Node):
         self.declare_parameter('mouse_max_hold_s', 8.0)
         self.declare_parameter('operator_ok_topic', '/teleop/operator_ok')
         self.declare_parameter('ok_overlay_duration_s', 3.0)
+        self.declare_parameter('layout_command_topic', '/teleop/operator_layout/command')
+        self.declare_parameter('layout_status_topic', '/teleop/operator_layout/status')
         self.declare_parameter('headless_ok', True)
 
         self.window_title = str(self.get_parameter('window_title').value).strip()
@@ -134,6 +136,10 @@ class OperatorDrivePanel(Node):
         self.operator_ok_topic = str(self.get_parameter('operator_ok_topic').value).strip()
         self.ok_overlay_duration_s = max(
             float(self.get_parameter('ok_overlay_duration_s').value), 0.1)
+        self.layout_command_topic = str(
+            self.get_parameter('layout_command_topic').value).strip()
+        self.layout_status_topic = str(
+            self.get_parameter('layout_status_topic').value).strip()
         self.headless_ok = self._as_bool(self.get_parameter('headless_ok').value)
 
         self.drive_enabled = False
@@ -151,11 +157,13 @@ class OperatorDrivePanel(Node):
         self.last_mux_status_time_s = 0.0
         self.last_head_mux_status = {}
         self.last_head_mux_status_time_s = 0.0
+        self.last_layout_status = 'Layout: ready'
         self.latest_head_position = {}
         self.latest_joint_state_time_s = 0.0
         self.gui_available = False
         self.root = None
         self.tk = None
+        self.messagebox = None
         self.headless_timer = None
         self.closing = False
 
@@ -172,6 +180,14 @@ class OperatorDrivePanel(Node):
         self.head_enabled_pub = self.create_publisher(
             Bool, self.head_enabled_topic, enabled_qos)
         self.ok_pub = self.create_publisher(String, self.operator_ok_topic, 10)
+        self.layout_command_pub = None
+        if self.layout_command_topic:
+            self.layout_command_pub = self.create_publisher(
+                String, self.layout_command_topic, 10)
+        self.layout_status_sub = None
+        if self.layout_status_topic:
+            self.layout_status_sub = self.create_subscription(
+                String, self.layout_status_topic, self._layout_status_callback, 10)
         self.mux_status_sub = None
         if self.cmd_vel_mux_status_topic:
             self.mux_status_sub = self.create_subscription(
@@ -240,6 +256,23 @@ class OperatorDrivePanel(Node):
             status = {}
         self.last_head_mux_status = status if isinstance(status, dict) else {}
         self.last_head_mux_status_time_s = self._now_s()
+
+    def _layout_status_callback(self, msg):
+        text = str(msg.data or '').strip()
+        if not text:
+            return
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            self.last_layout_status = f'Layout: {text}'
+            self._update_display()
+            return
+        action = str(payload.get('action') or '').strip()
+        status = str(payload.get('status') or '').strip()
+        message = str(payload.get('message') or '').strip()
+        parts = [part for part in (action, status, message) if part]
+        self.last_layout_status = f'Layout: {" - ".join(parts) or text}'
+        self._update_display()
 
     def _joint_state_callback(self, msg):
         now_s = self._now_s()
@@ -330,6 +363,7 @@ class OperatorDrivePanel(Node):
             return
         try:
             import tkinter as tk
+            from tkinter import messagebox
         except Exception as exc:
             self.get_logger().error(f'tkinter is unavailable; drive panel GUI disabled: {exc}')
             return
@@ -341,6 +375,7 @@ class OperatorDrivePanel(Node):
             return
 
         self.tk = tk
+        self.messagebox = messagebox
         self.root = root
         self.gui_available = True
         root.title(self.window_title)
@@ -363,6 +398,7 @@ class OperatorDrivePanel(Node):
         self.rotate_deg_var = tk.StringVar(value='10')
         self.head_var = tk.StringVar(value='head: --')
         self.head_drive_var = tk.StringVar(value='HEAD LOCKED')
+        self.layout_status_var = tk.StringVar(value=self.last_layout_status)
 
         outer = tk.Frame(root, bg='#202226')
         outer.pack(fill='both', expand=True, padx=16, pady=14)
@@ -555,6 +591,40 @@ class OperatorDrivePanel(Node):
             height=2,
         )
         ok_button.pack(fill='x', pady=(12, 0))
+
+        layout_frame = tk.LabelFrame(
+            outer,
+            text='WINDOW LAYOUT',
+            bg='#202226',
+            fg='#e6edf3',
+            font=('Helvetica', 11, 'bold'),
+            labelanchor='n',
+        )
+        layout_frame.pack(fill='x', pady=(12, 0))
+        for col in range(3):
+            layout_frame.grid_columnconfigure(col, weight=1)
+        layout_buttons = [
+            ('SAVE', lambda: self._publish_layout_command('save')),
+            ('RESTORE', lambda: self._publish_layout_command('restore')),
+            ('RESET', self._confirm_reset_layout),
+        ]
+        for col, (text, command) in enumerate(layout_buttons):
+            tk.Button(
+                layout_frame,
+                text=text,
+                command=command,
+                font=('Helvetica', 10, 'bold'),
+                height=1,
+            ).grid(row=0, column=col, sticky='ew', padx=5, pady=5)
+        tk.Label(
+            layout_frame,
+            textvariable=self.layout_status_var,
+            bg='#202226',
+            fg='#9ca6af',
+            anchor='w',
+            wraplength=max(self.window_width - 70, 280),
+            font=('Helvetica', 10),
+        ).grid(row=1, column=0, columnspan=3, sticky='ew', padx=5, pady=(0, 5))
 
         root.bind('<FocusIn>', self._on_focus_in)
         root.bind('<FocusOut>', self._on_focus_out)
@@ -1046,6 +1116,7 @@ class OperatorDrivePanel(Node):
         self.status_var.set(f'status: {self.status_text}')
         self.active_var.set(f'active: {self.active_text}    mux: {self._mux_text(mux_connected)}')
         self.speed_var.set(self._speed_text())
+        self.layout_status_var.set(self.last_layout_status)
         self._update_head_display()
 
         button_bg = '#344258' if self.drive_enabled else '#33363d'
@@ -1082,6 +1153,32 @@ class OperatorDrivePanel(Node):
         if self._head_mux_status_fresh():
             owner = self.last_head_mux_status.get('owner', '--')
         self.head_var.set(f'{self.head_status_text} | owner={owner} | {pos_text}')
+
+    def _publish_layout_command(self, command):
+        command = str(command or '').strip().lower()
+        if not command:
+            return
+        if self.layout_command_pub is None:
+            self.last_layout_status = 'Layout: command topic disabled'
+            self.get_logger().warn('layout command topic is disabled')
+            self._update_display()
+            return
+        msg = String()
+        msg.data = command
+        self.layout_command_pub.publish(msg)
+        self.last_layout_status = f'Layout: {command} requested'
+        self.get_logger().info(f'layout command requested: {command}')
+        self._update_display()
+
+    def _confirm_reset_layout(self):
+        if self.messagebox is not None:
+            confirmed = self.messagebox.askyesno(
+                'Reset Layout',
+                'Delete the saved operator window layout?',
+            )
+            if not confirmed:
+                return
+        self._publish_layout_command('reset')
 
     def _send_ok(self):
         payload = {

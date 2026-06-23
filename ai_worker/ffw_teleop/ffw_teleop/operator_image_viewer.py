@@ -30,6 +30,9 @@ DEFAULT_MISSING_IMAGE_HINTS = [
 DEFAULT_STREAM_STATS_STREAMS = [
     'R COLOR|wrist_right_color',
 ]
+DEFAULT_STREAM_ROTATE_DEG = [
+    'R COLOR|90',
+]
 
 TOOLBAR_HEIGHT = 42
 RESIZE_HANDLE_PX = 18
@@ -65,6 +68,7 @@ class OperatorImageViewer(Node):
         self.declare_parameter('missing_image_hints', DEFAULT_MISSING_IMAGE_HINTS)
         self.declare_parameter('stream_stats_topic', '/teleop/stream_stats')
         self.declare_parameter('stream_stats_streams', DEFAULT_STREAM_STATS_STREAMS)
+        self.declare_parameter('stream_rotate_deg', DEFAULT_STREAM_ROTATE_DEG)
         self.declare_parameter('camera_perf_topic', '/teleop/camera_perf')
         self.declare_parameter('window_x', 1520)
         self.declare_parameter('window_y', 40)
@@ -102,6 +106,8 @@ class OperatorImageViewer(Node):
             self.get_parameter('stream_stats_topic').value).strip()
         self.stream_stats_names = self._parse_hints(
             self.get_parameter('stream_stats_streams').value)
+        self.stream_rotate_deg = self._parse_float_hints(
+            self.get_parameter('stream_rotate_deg').value)
         self.camera_perf_topic = str(self.get_parameter('camera_perf_topic').value).strip()
         self.stream_by_name = {stream['name']: stream for stream in self.streams}
         self.frames = {
@@ -269,6 +275,22 @@ class OperatorImageViewer(Node):
                 hints[name] = hint
         return hints
 
+    def _parse_float_hints(self, raw_hints):
+        hints = {}
+        for raw in list(raw_hints or []):
+            text = str(raw).strip()
+            if not text or '|' not in text:
+                continue
+            name, value = text.split('|', 1)
+            name = name.strip()
+            try:
+                number = float(str(value).strip())
+            except (TypeError, ValueError):
+                continue
+            if name:
+                hints[name] = number
+        return hints
+
     def _default_layout(self):
         layout = {}
         row_count = max((len(self.streams) + self.columns - 1) // self.columns, 1)
@@ -424,11 +446,35 @@ class OperatorImageViewer(Node):
             if image is None:
                 self.get_logger().warn(f'failed to decode compressed image for {name}')
                 return
+            image = self._rotate_stream_image(name, image)
             self.frames[name]['image'] = image
             self.frames[name]['stamp'] = time.time()
             self._publish_stream_stats(name, msg, image)
             self._publish_camera_perf(name, msg, image)
         return callback
+
+    def _rotate_stream_image(self, name, image):
+        angle = float(self.stream_rotate_deg.get(name, 0.0)) % 360.0
+        if abs(angle) < 1e-3:
+            return image
+        height, width = image.shape[:2]
+        if height <= 0 or width <= 0:
+            return image
+        center = (width / 2.0, height / 2.0)
+        matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+        cos = abs(matrix[0, 0])
+        sin = abs(matrix[0, 1])
+        new_width = int((height * sin) + (width * cos))
+        new_height = int((height * cos) + (width * sin))
+        matrix[0, 2] += (new_width / 2.0) - center[0]
+        matrix[1, 2] += (new_height / 2.0) - center[1]
+        return cv2.warpAffine(
+            image,
+            matrix,
+            (new_width, new_height),
+            flags=cv2.INTER_LINEAR,
+            borderValue=(0, 0, 0),
+        )
 
     def _publish_stream_stats(self, name, msg, image):
         if self.stream_stats_pub is None:

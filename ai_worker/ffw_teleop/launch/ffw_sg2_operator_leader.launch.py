@@ -270,7 +270,7 @@ def generate_launch_description():
         parameters=[{
             'window_title': 'Teleop Drive Control',
             'window_width': 560,
-            'window_height': 860,
+            'window_height': 940,
             'window_x': 80,
             'window_y': 360,
             'keyboard_cmd_vel_topic': keyboard_cmd_vel_topic,
@@ -291,6 +291,8 @@ def generate_launch_description():
             'mouse_max_hold_s': mouse_max_hold_s,
             'operator_ok_topic': operator_ok_topic,
             'ok_overlay_duration_s': ok_overlay_duration_s,
+            'layout_command_topic': '/teleop/operator_layout/command',
+            'layout_status_topic': '/teleop/operator_layout/status',
         }],
         condition=IfCondition(start_operator_drive_panel),
     )

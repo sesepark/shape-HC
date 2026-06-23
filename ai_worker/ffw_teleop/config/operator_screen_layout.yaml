@@ -6,7 +6,7 @@ windows:
       - "RViz"
       - "RViz2"
   - name: mission_control
-    enabled: true
+    enabled: false
     title_patterns:
       - "Mission Control"
   - name: operator_image_viewer
