@@ -61,9 +61,17 @@ def generate_launch_description():
     start_operator_drive_panel = LaunchConfiguration('start_operator_drive_panel')
     start_operator_layout = LaunchConfiguration('start_operator_layout')
     start_cmd_vel_mux = LaunchConfiguration('start_cmd_vel_mux')
+    start_head_trajectory_mux = LaunchConfiguration('start_head_trajectory_mux')
     joystick_cmd_vel_topic = LaunchConfiguration('joystick_cmd_vel_topic')
     keyboard_cmd_vel_topic = LaunchConfiguration('keyboard_cmd_vel_topic')
     keyboard_enabled_topic = LaunchConfiguration('keyboard_enabled_topic')
+    leader_head_cmd_topic = LaunchConfiguration('leader_head_cmd_topic')
+    monitor_head_cmd_topic = LaunchConfiguration('monitor_head_cmd_topic')
+    head_enabled_topic = LaunchConfiguration('head_enabled_topic')
+    head_mux_output_topic = LaunchConfiguration('head_mux_output_topic')
+    head_mux_status_topic = LaunchConfiguration('head_mux_status_topic')
+    head_pan_step_deg = LaunchConfiguration('head_pan_step_deg')
+    head_tilt_step_deg = LaunchConfiguration('head_tilt_step_deg')
     mission_keyboard_drive_enabled = LaunchConfiguration('mission_keyboard_drive_enabled')
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
     cmd_vel_mux_status_topic = LaunchConfiguration('cmd_vel_mux_status_topic')
@@ -90,6 +98,7 @@ def generate_launch_description():
         'operator_image_viewer_follow_window_size')
     operator_image_viewer_show_toolbar = LaunchConfiguration(
         'operator_image_viewer_show_toolbar')
+    camera_perf_topic = LaunchConfiguration('camera_perf_topic')
     mission_profiles_config = LaunchConfiguration('mission_profiles_config')
     operator_screen_layout_config = LaunchConfiguration('operator_screen_layout_config')
     operator_layout_action = LaunchConfiguration('operator_layout_action')
@@ -214,6 +223,22 @@ def generate_launch_description():
         condition=IfCondition(start_cmd_vel_mux),
     )
 
+    head_trajectory_mux = Node(
+        package='ffw_teleop',
+        executable='teleop_head_trajectory_mux',
+        name='teleop_head_trajectory_mux',
+        output='screen',
+        parameters=[{
+            'leader_head_topic': leader_head_cmd_topic,
+            'monitor_head_topic': monitor_head_cmd_topic,
+            'monitor_enabled_topic': head_enabled_topic,
+            'output_head_topic': head_mux_output_topic,
+            'status_topic': head_mux_status_topic,
+            'publish_hz': keyboard_publish_hz,
+        }],
+        condition=IfCondition(start_head_trajectory_mux),
+    )
+
     operator_image_viewer = Node(
         package='ffw_teleop',
         executable='operator_image_viewer',
@@ -230,6 +255,7 @@ def generate_launch_description():
             'follow_window_size': operator_image_viewer_follow_window_size,
             'layout_store_path': operator_image_viewer_layout_store_path,
             'show_toolbar': operator_image_viewer_show_toolbar,
+            'camera_perf_topic': camera_perf_topic,
             'window_x': 1520,
             'window_y': 40,
         }],
@@ -243,14 +269,20 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'window_title': 'Teleop Drive Control',
-            'window_width': 420,
-            'window_height': 520,
+            'window_width': 560,
+            'window_height': 860,
             'window_x': 80,
-            'window_y': 560,
+            'window_y': 360,
             'keyboard_cmd_vel_topic': keyboard_cmd_vel_topic,
             'keyboard_enabled_topic': keyboard_enabled_topic,
             'cmd_vel_topic': cmd_vel_topic,
             'cmd_vel_mux_status_topic': cmd_vel_mux_status_topic,
+            'monitor_head_cmd_topic': monitor_head_cmd_topic,
+            'head_enabled_topic': head_enabled_topic,
+            'head_mux_status_topic': head_mux_status_topic,
+            'joint_state_topic': '/joint_states',
+            'head_pan_step_deg': head_pan_step_deg,
+            'head_tilt_step_deg': head_tilt_step_deg,
             'keyboard_linear_x_mps': keyboard_linear_x_mps,
             'keyboard_linear_y_mps': keyboard_linear_y_mps,
             'keyboard_angular_z_radps': keyboard_angular_z_radps,
@@ -298,15 +330,25 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'start_cmd_vel_mux',
             default_value='true'),
+        DeclareLaunchArgument('start_head_trajectory_mux', default_value='true'),
         DeclareLaunchArgument('joystick_cmd_vel_topic', default_value='/teleop/joystick_cmd_vel'),
         DeclareLaunchArgument('keyboard_cmd_vel_topic', default_value='/teleop/keyboard_cmd_vel'),
         DeclareLaunchArgument(
             'keyboard_enabled_topic', default_value='/teleop/keyboard_drive/enabled'),
+        DeclareLaunchArgument('leader_head_cmd_topic', default_value='/teleop/leader_head_cmd'),
+        DeclareLaunchArgument('monitor_head_cmd_topic', default_value='/teleop/monitor_head_cmd'),
+        DeclareLaunchArgument('head_enabled_topic', default_value='/teleop/head_drive/enabled'),
+        DeclareLaunchArgument(
+            'head_mux_output_topic',
+            default_value='/leader/joystick_controller_left/joint_trajectory'),
+        DeclareLaunchArgument('head_mux_status_topic', default_value='/teleop/head_mux/status'),
+        DeclareLaunchArgument('head_pan_step_deg', default_value='3.0'),
+        DeclareLaunchArgument('head_tilt_step_deg', default_value='3.0'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
         DeclareLaunchArgument(
             'cmd_vel_mux_status_topic', default_value='/teleop/cmd_vel_mux/status'),
-        DeclareLaunchArgument('keyboard_linear_x_mps', default_value='0.08'),
-        DeclareLaunchArgument('keyboard_linear_y_mps', default_value='0.08'),
+        DeclareLaunchArgument('keyboard_linear_x_mps', default_value='0.12'),
+        DeclareLaunchArgument('keyboard_linear_y_mps', default_value='0.12'),
         DeclareLaunchArgument('keyboard_angular_z_radps', default_value='0.20'),
         DeclareLaunchArgument('keyboard_publish_hz', default_value='30.0'),
         DeclareLaunchArgument('keyboard_key_timeout_s', default_value='0.35'),
@@ -324,6 +366,7 @@ def generate_launch_description():
         DeclareLaunchArgument('operator_image_viewer_auto_canvas_size', default_value='true'),
         DeclareLaunchArgument('operator_image_viewer_follow_window_size', default_value='true'),
         DeclareLaunchArgument('operator_image_viewer_show_toolbar', default_value='true'),
+        DeclareLaunchArgument('camera_perf_topic', default_value='/teleop/camera_perf'),
         DeclareLaunchArgument('start_operator_layout', default_value='true'),
         DeclareLaunchArgument(
             'rviz_config',
@@ -372,6 +415,7 @@ def generate_launch_description():
         leader_spawner,
         OpaqueFunction(function=make_rviz_node),
         TimerAction(period=1.0, actions=[cmd_vel_mux]),
+        TimerAction(period=1.2, actions=[head_trajectory_mux]),
         TimerAction(period=1.5, actions=[mission_control]),
         TimerAction(period=2.5, actions=[operator_image_viewer]),
         TimerAction(period=3.0, actions=[operator_drive_panel]),

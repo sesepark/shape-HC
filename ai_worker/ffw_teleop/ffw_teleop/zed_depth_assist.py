@@ -1,5 +1,6 @@
 import json
 import math
+import time
 
 import cv2
 import numpy as np
@@ -31,6 +32,7 @@ class ZedDepthAssist(Node):
         self.declare_parameter('metrics_topic', '/teleop/zed/depth_metrics')
         self.declare_parameter('stream_stats_topic', '/teleop/stream_stats')
         self.declare_parameter('stream_stats_name', 'zed')
+        self.declare_parameter('camera_perf_topic', '/teleop/camera_perf')
         self.declare_parameter('publish_fps', 30.0)
         self.declare_parameter('jpeg_quality', 88)
         self.declare_parameter('depth_scale', 0.001)
@@ -92,6 +94,7 @@ class ZedDepthAssist(Node):
         self.stream_stats_topic = str(self.get_parameter('stream_stats_topic').value).strip()
         self.stream_stats_name = str(
             self.get_parameter('stream_stats_name').value).strip() or 'zed'
+        self.camera_perf_topic = str(self.get_parameter('camera_perf_topic').value).strip()
         self.publish_fps = max(float(self.get_parameter('publish_fps').value), 0.1)
         self.jpeg_quality = int(np.clip(int(self.get_parameter('jpeg_quality').value), 1, 100))
         self.depth_scale = float(self.get_parameter('depth_scale').value)
@@ -138,6 +141,14 @@ class ZedDepthAssist(Node):
         self.publish_period_ns = int(1_000_000_000 / self.publish_fps)
         self.last_publish_time = None
         self.last_warn_time = None
+        self.last_perf_publish_time = None
+        self.depth_input_times = []
+        self.base_input_times = []
+        self.output_times = []
+        self.last_process_ms = None
+        self.last_jpeg_ms = None
+        self.last_output_bytes = 0
+        self.last_drop_reason = 'startup'
         self.latest_base_image = None
         self.latest_base_image_time = None
         self.latest_base_image_header = None
@@ -167,6 +178,9 @@ class ZedDepthAssist(Node):
         self.stream_stats_pub = None
         if self.stream_stats_topic:
             self.stream_stats_pub = self.create_publisher(String, self.stream_stats_topic, 10)
+        self.camera_perf_pub = None
+        if self.camera_perf_topic:
+            self.camera_perf_pub = self.create_publisher(String, self.camera_perf_topic, 10)
 
         self.get_logger().info(
             f'ZED arm-relative depth assist: depth={self.depth_topic}, '
@@ -205,7 +219,48 @@ class ZedDepthAssist(Node):
             self.get_logger().warn(message)
             self.last_warn_time = now
 
+    def _record_event(self, samples, now_s=None):
+        if now_s is None:
+            now_s = time.monotonic()
+        samples.append(float(now_s))
+        cutoff = float(now_s) - 5.0
+        del samples[:max(0, len(samples) - 200)]
+        while samples and samples[0] < cutoff:
+            samples.pop(0)
+
+    def _sample_hz(self, samples):
+        if len(samples) < 2:
+            return 0.0
+        duration = max(float(samples[-1] - samples[0]), 1e-6)
+        return (len(samples) - 1) / duration
+
+    def _maybe_publish_camera_perf(self, now=None):
+        if self.camera_perf_pub is None:
+            return
+        now = now or self.get_clock().now()
+        if (self.last_perf_publish_time is not None and
+                (now - self.last_perf_publish_time).nanoseconds < 1_000_000_000):
+            return
+        self.last_perf_publish_time = now
+        payload = {
+            'stamp_sec': now.nanoseconds / 1e9,
+            'name': self.stream_stats_name,
+            'topic': self.assist_topic,
+            'depth_input_hz': self._sample_hz(self.depth_input_times),
+            'base_input_hz': self._sample_hz(self.base_input_times),
+            'output_hz': self._sample_hz(self.output_times),
+            'process_ms': self._clean_float(self.last_process_ms, 2),
+            'jpeg_ms': self._clean_float(self.last_jpeg_ms, 2),
+            'bytes': int(self.last_output_bytes),
+            'subscriber_count': int(self.count_subscribers(self.assist_topic)),
+            'drop_reason': self.last_drop_reason,
+        }
+        msg = String()
+        msg.data = json.dumps(payload, sort_keys=True)
+        self.camera_perf_pub.publish(msg)
+
     def _base_image_callback(self, msg):
+        self._record_event(self.base_input_times)
         image = self._image_to_bgr(msg)
         if image is None:
             return
@@ -227,25 +282,43 @@ class ZedDepthAssist(Node):
         }
 
     def _depth_callback(self, msg):
+        callback_start = time.perf_counter()
         now = self.get_clock().now()
+        self._record_event(self.depth_input_times)
         if (self.last_publish_time is not None and
                 (now - self.last_publish_time).nanoseconds < self.publish_period_ns):
+            self.last_drop_reason = 'throttle'
+            self._maybe_publish_camera_perf(now)
             return
         self.last_publish_time = now
 
         depth_m = self._image_to_depth_meters(msg)
         if depth_m is None:
+            self.last_drop_reason = 'invalid_depth'
+            self._maybe_publish_camera_perf(now)
             return
 
         metrics, draw = self._arm_relative_metrics(depth_m, msg)
         self._publish_metrics(metrics)
 
         if self.count_subscribers(self.assist_topic) <= 0:
+            self.last_drop_reason = 'no_subscribers'
+            self.last_process_ms = (time.perf_counter() - callback_start) * 1000.0
+            self._maybe_publish_camera_perf(now)
             return
 
         base = self._get_base_image(depth_m.shape, now)
         image = self._make_assist_image(metrics, draw, base)
-        self._publish_jpeg(msg.header, image)
+        byte_count, jpeg_ms = self._publish_jpeg(msg.header, image)
+        if byte_count > 0:
+            self._record_event(self.output_times)
+            self.last_output_bytes = byte_count
+            self.last_jpeg_ms = jpeg_ms
+            self.last_drop_reason = 'published'
+        else:
+            self.last_drop_reason = 'jpeg_failed'
+        self.last_process_ms = (time.perf_counter() - callback_start) * 1000.0
+        self._maybe_publish_camera_perf(now)
 
     def _image_to_bgr(self, msg):
         encoding = msg.encoding.upper()
@@ -894,17 +967,20 @@ class ZedDepthAssist(Node):
         self.metrics_pub.publish(msg)
 
     def _publish_jpeg(self, header, image):
+        encode_start = time.perf_counter()
         ok, encoded = cv2.imencode(
             '.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality])
+        jpeg_ms = (time.perf_counter() - encode_start) * 1000.0
         if not ok:
             self._warn_throttled('failed to JPEG-encode ZED arm-relative depth assist')
-            return
+            return 0, jpeg_ms
         msg = CompressedImage()
         msg.header = header
         msg.format = 'jpeg'
         msg.data = encoded.tobytes()
         self.assist_pub.publish(msg)
         self._publish_stream_stats(image, len(msg.data))
+        return len(msg.data), jpeg_ms
 
     def _publish_stream_stats(self, image, byte_count):
         if self.stream_stats_pub is None:

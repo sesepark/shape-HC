@@ -26,6 +26,7 @@ class TeleopBandwidthMonitor(Node):
         super().__init__('teleop_bandwidth_monitor')
 
         self.declare_parameter('stream_stats_topic', '/teleop/stream_stats')
+        self.declare_parameter('camera_perf_topic', '/teleop/camera_perf')
         self.declare_parameter('monitor_topic', '/teleop/bandwidth_monitor')
         self.declare_parameter('panel_topic', '/teleop/bandwidth_monitor/compressed')
         self.declare_parameter('available_mbps', 350.0)
@@ -57,6 +58,8 @@ class TeleopBandwidthMonitor(Node):
 
         self.stream_stats_topic = str(
             self.get_parameter('stream_stats_topic').value).strip()
+        self.camera_perf_topic = str(
+            self.get_parameter('camera_perf_topic').value).strip()
         self.monitor_topic = str(self.get_parameter('monitor_topic').value).strip()
         self.panel_topic = str(self.get_parameter('panel_topic').value).strip()
         self.available_mbps = max(float(self.get_parameter('available_mbps').value), 0.1)
@@ -86,6 +89,7 @@ class TeleopBandwidthMonitor(Node):
             self.network_interface = self._detect_network_interface()
         self.last_tx_sample = None
         self.samples = {}
+        self.camera_perf = {}
         self.expected_topics = {
             'wrist_right_color': str(
                 self.get_parameter('wrist_right_color_compressed_topic').value).strip(),
@@ -93,12 +97,16 @@ class TeleopBandwidthMonitor(Node):
 
         self.create_subscription(
             String, self.stream_stats_topic, self._stream_stats_callback, 100)
+        if self.camera_perf_topic:
+            self.create_subscription(
+                String, self.camera_perf_topic, self._camera_perf_callback, 100)
         self.monitor_pub = self.create_publisher(String, self.monitor_topic, 10)
         self.panel_pub = self.create_publisher(CompressedImage, self.panel_topic, 1)
         self.timer = self.create_timer(1.0 / publish_hz, self._publish)
 
         self.get_logger().info(
             f'teleop bandwidth monitor: stats={self.stream_stats_topic}, '
+            f'perf={self.camera_perf_topic or "disabled"}, '
             f'panel={self.panel_topic}, budget={self.available_mbps:.1f} Mbps, '
             f'net_if={self.network_interface or "disabled"}, '
             f'color_topics={self.expected_topics}')
@@ -143,13 +151,28 @@ class TeleopBandwidthMonitor(Node):
             if now - item['t'] <= max(self.window_s, self.stale_timeout_s)
         ]
 
+    def _camera_perf_callback(self, msg):
+        try:
+            payload = json.loads(msg.data)
+        except json.JSONDecodeError:
+            self.get_logger().warn('ignoring malformed camera perf JSON')
+            return
+
+        name = str(payload.get('name') or '').strip()
+        if not name:
+            return
+        payload['_received_sec'] = self.get_clock().now().nanoseconds / 1e9
+        self.camera_perf[name] = payload
+
     def _publish(self):
         now = self.get_clock().now().nanoseconds / 1e9
         streams = {}
         for name, _ in STREAM_ROWS:
             streams[name] = self._stream_snapshot(name, now)
+            streams[name]['camera_perf'] = self._camera_perf_snapshot(name, now)
         for name in sorted(set(self.samples.keys()) - set(streams.keys())):
             streams[name] = self._stream_snapshot(name, now)
+            streams[name]['camera_perf'] = self._camera_perf_snapshot(name, now)
 
         total_mbps = sum(
             stream['mbps'] for stream in streams.values()
@@ -164,6 +187,10 @@ class TeleopBandwidthMonitor(Node):
             'headroom_mbps': self.available_mbps - total_mbps,
             'net_tx_mbps': self._network_tx_mbps(now),
             'usb_estimate': self._usb_estimate(),
+            'camera_perf': {
+                name: self._camera_perf_snapshot(name, now)
+                for name in sorted(self.camera_perf.keys())
+            },
             'streams': streams,
         }
 
@@ -211,6 +238,34 @@ class TeleopBandwidthMonitor(Node):
             'topic': topic,
             'publishers': self.count_publishers(topic) if topic else None,
         }
+
+    def _camera_perf_snapshot(self, name, now):
+        payload = self.camera_perf.get(name)
+        if not payload:
+            return {}
+        received = self._float_or_none(payload.get('_received_sec'))
+        stale = received is None or now - received > max(self.stale_timeout_s * 2.0, 2.0)
+        snapshot = {
+            'fresh': not stale,
+            'stale': stale,
+        }
+        for key in (
+            'topic',
+            'depth_input_hz',
+            'base_input_hz',
+            'rx_hz',
+            'output_hz',
+            'process_ms',
+            'jpeg_ms',
+            'bytes',
+            'subscriber_count',
+            'drop_reason',
+            'width',
+            'height',
+        ):
+            if key in payload:
+                snapshot[key] = payload.get(key)
+        return snapshot
 
     def _publish_panel(self, payload):
         if self.count_subscribers(self.panel_topic) <= 0:
@@ -321,11 +376,16 @@ class TeleopBandwidthMonitor(Node):
             q_text = f'Q{int(quality)}' if quality is not None else 'Q--'
             target_fps = self._target_fps_for_stream(name)
             fps_state = 'LOW FPS' if fps < target_fps * 0.8 else 'OK'
-            text = f'{label:<7} {fps:4.1f}Hz  {mbps:5.1f}M  {res:<9} {q_text} {fps_state}'
+            perf_text = self._perf_text(stream)
+            text = (
+                f'{label:<7} {fps:4.1f}Hz {mbps:5.1f}M '
+                f'{res:<9} {q_text} {fps_state} {perf_text}'
+            )
             bar_color = self._usage_color(usage)
         else:
             state = self._stale_state_text(stream)
-            text = f'{label:<7} -- Hz    -- M     {state}'
+            perf_text = self._perf_text(stream)
+            text = f'{label:<7} -- Hz   -- M     {state} {perf_text}'
             usage = 0.0
             bar_color = (86, 90, 98)
         self._put_text(
@@ -347,6 +407,29 @@ class TeleopBandwidthMonitor(Node):
         if publishers and not stream.get('has_samples'):
             return 'NO STATS'
         return 'STALE'
+
+    def _perf_text(self, stream):
+        perf = stream.get('camera_perf') or {}
+        if not perf:
+            return 'SRC -- OUT -- P -- J --'
+        if perf.get('stale'):
+            return 'SRC STALE OUT -- P -- J --'
+        src_hz = self._first_float(
+            perf.get('depth_input_hz'),
+            perf.get('rx_hz'),
+            perf.get('base_input_hz'),
+        )
+        out_hz = self._float_or_none(perf.get('output_hz'))
+        process_ms = self._float_or_none(perf.get('process_ms'))
+        jpeg_ms = self._float_or_none(perf.get('jpeg_ms'))
+        src = '--' if src_hz is None else f'{src_hz:.1f}'
+        out = '--' if out_hz is None else f'{out_hz:.1f}'
+        proc = '--' if process_ms is None else f'{process_ms:.0f}'
+        jpeg = '--' if jpeg_ms is None else f'{jpeg_ms:.0f}'
+        drop = str(perf.get('drop_reason') or '')
+        if drop and drop not in ('published', 'main_rx'):
+            return f'SRC {src} OUT {out} P{proc} J{jpeg} {drop[:12]}'
+        return f'SRC {src} OUT {out} P{proc} J{jpeg}'
 
     def _target_fps_for_stream(self, name):
         profile_param_by_name = {
@@ -499,6 +582,19 @@ class TeleopBandwidthMonitor(Node):
             return int(value)
         except (TypeError, ValueError):
             return None
+
+    def _float_or_none(self, value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _first_float(self, *values):
+        for value in values:
+            result = self._float_or_none(value)
+            if result is not None:
+                return result
+        return None
 
 
 def main(args=None):

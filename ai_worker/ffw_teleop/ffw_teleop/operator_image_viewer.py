@@ -66,6 +66,7 @@ class OperatorImageViewer(Node):
         self.declare_parameter('missing_image_hints', DEFAULT_MISSING_IMAGE_HINTS)
         self.declare_parameter('stream_stats_topic', '/teleop/stream_stats')
         self.declare_parameter('stream_stats_streams', DEFAULT_STREAM_STATS_STREAMS)
+        self.declare_parameter('camera_perf_topic', '/teleop/camera_perf')
         self.declare_parameter('window_x', 1520)
         self.declare_parameter('window_y', 40)
         self.declare_parameter('headless_ok', True)
@@ -102,6 +103,7 @@ class OperatorImageViewer(Node):
             self.get_parameter('stream_stats_topic').value).strip()
         self.stream_stats_names = self._parse_hints(
             self.get_parameter('stream_stats_streams').value)
+        self.camera_perf_topic = str(self.get_parameter('camera_perf_topic').value).strip()
         self.stream_by_name = {stream['name']: stream for stream in self.streams}
         self.frames = {
             stream['name']: {
@@ -122,6 +124,11 @@ class OperatorImageViewer(Node):
         self.stream_stats_pub = None
         if self.stream_stats_topic and self.stream_stats_names:
             self.stream_stats_pub = self.create_publisher(String, self.stream_stats_topic, 10)
+        self.camera_perf_pub = None
+        if self.camera_perf_topic and self.stream_stats_names:
+            self.camera_perf_pub = self.create_publisher(String, self.camera_perf_topic, 10)
+        self.camera_perf_times = {}
+        self.last_camera_perf_publish = {}
 
         self._load_layout()
 
@@ -421,6 +428,7 @@ class OperatorImageViewer(Node):
             self.frames[name]['image'] = image
             self.frames[name]['stamp'] = time.time()
             self._publish_stream_stats(name, msg, image)
+            self._publish_camera_perf(name, msg, image)
         return callback
 
     def _publish_stream_stats(self, name, msg, image):
@@ -442,6 +450,46 @@ class OperatorImageViewer(Node):
         out = String()
         out.data = json.dumps(payload, sort_keys=True)
         self.stream_stats_pub.publish(out)
+
+    def _publish_camera_perf(self, name, msg, image):
+        if self.camera_perf_pub is None:
+            return
+        stats_name = self.stream_stats_names.get(name)
+        if not stats_name:
+            return
+        now_s = time.time()
+        times = self.camera_perf_times.setdefault(name, [])
+        times.append(now_s)
+        cutoff = now_s - 5.0
+        del times[:max(0, len(times) - 200)]
+        while times and times[0] < cutoff:
+            times.pop(0)
+        last_publish = self.last_camera_perf_publish.get(name, 0.0)
+        if now_s - last_publish < 1.0:
+            return
+        self.last_camera_perf_publish[name] = now_s
+        height, width = image.shape[:2]
+        payload = {
+            'stamp_sec': now_s,
+            'name': stats_name,
+            'topic': self.frames.get(name, {}).get('topic', ''),
+            'rx_hz': self._sample_hz(times),
+            'output_hz': self._sample_hz(times),
+            'bytes': len(msg.data),
+            'width': int(width),
+            'height': int(height),
+            'subscriber_count': 1,
+            'drop_reason': 'main_rx',
+        }
+        out = String()
+        out.data = json.dumps(payload, sort_keys=True)
+        self.camera_perf_pub.publish(out)
+
+    def _sample_hz(self, samples):
+        if len(samples) < 2:
+            return 0.0
+        duration = max(float(samples[-1] - samples[0]), 1e-6)
+        return (len(samples) - 1) / duration
 
     def _show(self):
         if not self.gui_available:

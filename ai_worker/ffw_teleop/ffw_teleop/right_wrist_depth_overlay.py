@@ -1,5 +1,6 @@
 import json
 import math
+import time
 
 import cv2
 import numpy as np
@@ -30,6 +31,7 @@ class WristDepthOverlay(Node):
         self.declare_parameter('metrics_topic', '/teleop/wrist_right/depth_metrics')
         self.declare_parameter('stream_stats_topic', '/teleop/stream_stats')
         self.declare_parameter('stream_stats_name', '')
+        self.declare_parameter('camera_perf_topic', '/teleop/camera_perf')
         self.declare_parameter('side', 'right')
         self.declare_parameter('feedback_visual_mode', 'assist')
         self.declare_parameter('subscribe_base_image', False)
@@ -83,6 +85,7 @@ class WristDepthOverlay(Node):
         self.center_distance_topic = self.get_parameter('center_distance_topic').value
         self.metrics_topic = self.get_parameter('metrics_topic').value
         self.stream_stats_topic = str(self.get_parameter('stream_stats_topic').value).strip()
+        self.camera_perf_topic = str(self.get_parameter('camera_perf_topic').value).strip()
         self.side = str(self.get_parameter('side').value).strip() or 'unknown'
         self.stream_stats_name = str(self.get_parameter('stream_stats_name').value).strip()
         if not self.stream_stats_name:
@@ -163,6 +166,13 @@ class WristDepthOverlay(Node):
         self.last_publish_time = None
         self.last_base_compressed_publish_time = None
         self.last_warn_time = None
+        self.last_perf_publish_time = None
+        self.depth_input_times = []
+        self.output_times = []
+        self.last_process_ms = None
+        self.last_jpeg_ms = None
+        self.last_output_bytes = 0
+        self.last_drop_reason = 'startup'
         self.latest_base_image = None
         self.latest_base_image_time = None
         self.latest_base_image_header = None
@@ -189,6 +199,9 @@ class WristDepthOverlay(Node):
         self.stream_stats_pub = None
         if self.stream_stats_topic:
             self.stream_stats_pub = self.create_publisher(String, self.stream_stats_topic, 10)
+        self.camera_perf_pub = None
+        if self.camera_perf_topic:
+            self.camera_perf_pub = self.create_publisher(String, self.camera_perf_topic, 10)
 
         self.get_logger().info(
             f'wrist depth feedback({self.side}): mode={self.feedback_visual_mode}, '
@@ -234,6 +247,45 @@ class WristDepthOverlay(Node):
             self.get_logger().warn(message)
             self.last_warn_time = now
 
+    def _record_event(self, samples, now_s=None):
+        if now_s is None:
+            now_s = time.monotonic()
+        samples.append(float(now_s))
+        cutoff = float(now_s) - 5.0
+        del samples[:max(0, len(samples) - 200)]
+        while samples and samples[0] < cutoff:
+            samples.pop(0)
+
+    def _sample_hz(self, samples):
+        if len(samples) < 2:
+            return 0.0
+        duration = max(float(samples[-1] - samples[0]), 1e-6)
+        return (len(samples) - 1) / duration
+
+    def _maybe_publish_camera_perf(self, now=None):
+        if self.camera_perf_pub is None:
+            return
+        now = now or self.get_clock().now()
+        if (self.last_perf_publish_time is not None and
+                (now - self.last_perf_publish_time).nanoseconds < 1_000_000_000):
+            return
+        self.last_perf_publish_time = now
+        msg = String()
+        msg.data = json.dumps({
+            'stamp_sec': now.nanoseconds / 1e9,
+            'name': self.stream_stats_name,
+            'topic': self.assist_topic,
+            'depth_input_hz': self._sample_hz(self.depth_input_times),
+            'base_input_hz': None,
+            'output_hz': self._sample_hz(self.output_times),
+            'process_ms': self._clean_float(self.last_process_ms),
+            'jpeg_ms': self._clean_float(self.last_jpeg_ms),
+            'bytes': int(self.last_output_bytes),
+            'subscriber_count': int(self.count_subscribers(self.assist_topic)),
+            'drop_reason': self.last_drop_reason,
+        }, sort_keys=True)
+        self.camera_perf_pub.publish(msg)
+
     def _has_subscribers(self, topic):
         return bool(topic) and self.count_subscribers(topic) > 0
 
@@ -253,14 +305,20 @@ class WristDepthOverlay(Node):
             self.last_base_compressed_publish_time = self.latest_base_image_time
 
     def _depth_callback(self, msg):
+        callback_start = time.perf_counter()
         now = self.get_clock().now()
+        self._record_event(self.depth_input_times)
         if (self.last_publish_time is not None and
                 (now - self.last_publish_time).nanoseconds < self.publish_period_ns):
+            self.last_drop_reason = 'throttle'
+            self._maybe_publish_camera_perf(now)
             return
         self.last_publish_time = now
 
         depth_m = self._image_to_depth_meters(msg)
         if depth_m is None:
+            self.last_drop_reason = 'invalid_depth'
+            self._maybe_publish_camera_perf(now)
             return
 
         metrics, assist_draw = self._depth_assist_metrics(depth_m, msg.header.stamp)
@@ -278,6 +336,9 @@ class WristDepthOverlay(Node):
         needs_compressed_overlay = (
             self.feedback_visual_mode == 'overlay' and self._has_subscribers(self.compressed_topic))
         if not (needs_assist or needs_raw_overlay or needs_compressed_overlay):
+            self.last_drop_reason = 'no_subscribers'
+            self.last_process_ms = (time.perf_counter() - callback_start) * 1000.0
+            self._maybe_publish_camera_perf(now)
             return
 
         base_image = None
@@ -286,9 +347,18 @@ class WristDepthOverlay(Node):
 
         if needs_assist:
             assist = self._make_assist_image(depth_m, metrics, assist_draw, base_image)
-            self._publish_assist_image(msg, assist)
+            byte_count, jpeg_ms = self._publish_assist_image(msg, assist)
+            if byte_count > 0:
+                self._record_event(self.output_times)
+                self.last_output_bytes = byte_count
+                self.last_jpeg_ms = jpeg_ms
+                self.last_drop_reason = 'published'
+            else:
+                self.last_drop_reason = 'jpeg_failed'
 
         if not (needs_raw_overlay or needs_compressed_overlay):
+            self.last_process_ms = (time.perf_counter() - callback_start) * 1000.0
+            self._maybe_publish_camera_perf(now)
             return
 
         overlay = self._make_overlay(depth_m, center_distance, base_image)
@@ -296,6 +366,8 @@ class WristDepthOverlay(Node):
             self._publish_overlay_image(msg, overlay)
         if needs_compressed_overlay:
             self._publish_compressed_image(msg, overlay)
+        self.last_process_ms = (time.perf_counter() - callback_start) * 1000.0
+        self._maybe_publish_camera_perf(now)
 
     def _image_to_bgr(self, msg):
         encoding = msg.encoding.upper()
@@ -932,7 +1004,7 @@ class WristDepthOverlay(Node):
             self.compressed_pub, source_msg.header, overlay, 'failed to JPEG-encode depth overlay')
 
     def _publish_assist_image(self, source_msg, image):
-        self._publish_jpeg(
+        return self._publish_jpeg(
             self.assist_pub,
             source_msg.header,
             image,
@@ -956,13 +1028,15 @@ class WristDepthOverlay(Node):
     def _publish_jpeg(self, publisher, header, image, warn_message,
                       stats_name=None, published_topic='', jpeg_quality=None):
         if publisher is None:
-            return
+            return 0, 0.0
         quality = self.jpeg_quality if jpeg_quality is None else int(jpeg_quality)
+        encode_start = time.perf_counter()
         ok, encoded = cv2.imencode(
             '.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+        jpeg_ms = (time.perf_counter() - encode_start) * 1000.0
         if not ok:
             self._warn_throttled(warn_message)
-            return
+            return 0, jpeg_ms
         msg = CompressedImage()
         msg.header = header
         msg.format = 'jpeg'
@@ -970,6 +1044,7 @@ class WristDepthOverlay(Node):
         publisher.publish(msg)
         if stats_name:
             self._publish_stream_stats(stats_name, published_topic, image, len(msg.data), quality)
+        return len(msg.data), jpeg_ms
 
     def _publish_stream_stats(self, name, topic, image, byte_count, jpeg_quality=None):
         if self.stream_stats_pub is None:

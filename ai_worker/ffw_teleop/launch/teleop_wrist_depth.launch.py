@@ -149,6 +149,7 @@ def generate_launch_description():
             'assist_topic': LaunchConfiguration('zed_assist_topic'),
             'metrics_topic': LaunchConfiguration('zed_metrics_topic'),
             'stream_stats_topic': LaunchConfiguration('stream_stats_topic'),
+            'camera_perf_topic': LaunchConfiguration('camera_perf_topic'),
             'stream_stats_name': 'zed',
             'publish_fps': LaunchConfiguration('zed_assist_fps'),
             'jpeg_quality': LaunchConfiguration('zed_assist_jpeg_quality'),
@@ -201,6 +202,7 @@ def generate_launch_description():
             'center_distance_topic': LaunchConfiguration('center_distance_topic'),
             'metrics_topic': LaunchConfiguration('metrics_topic'),
             'stream_stats_topic': LaunchConfiguration('stream_stats_topic'),
+            'camera_perf_topic': LaunchConfiguration('camera_perf_topic'),
             'stream_stats_name': 'wrist_right',
             'side': 'right',
             'feedback_visual_mode': LaunchConfiguration('feedback_visual_mode'),
@@ -262,6 +264,7 @@ def generate_launch_description():
             'center_distance_topic': LaunchConfiguration('left_center_distance_topic'),
             'metrics_topic': LaunchConfiguration('left_metrics_topic'),
             'stream_stats_topic': LaunchConfiguration('stream_stats_topic'),
+            'camera_perf_topic': LaunchConfiguration('camera_perf_topic'),
             'stream_stats_name': 'wrist_left',
             'side': 'left',
             'feedback_visual_mode': LaunchConfiguration('feedback_visual_mode'),
@@ -354,6 +357,7 @@ def generate_launch_description():
         condition=IfCondition(start_bandwidth_monitor),
         parameters=[{
             'stream_stats_topic': LaunchConfiguration('stream_stats_topic'),
+            'camera_perf_topic': LaunchConfiguration('camera_perf_topic'),
             'monitor_topic': LaunchConfiguration('bandwidth_monitor_topic'),
             'panel_topic': LaunchConfiguration('bandwidth_panel_topic'),
             'available_mbps': LaunchConfiguration('bandwidth_available_mbps'),
@@ -403,6 +407,8 @@ def generate_launch_description():
             'zed_metrics_topic', default_value='/teleop/zed/depth_metrics'),
         DeclareLaunchArgument(
             'stream_stats_topic', default_value='/teleop/stream_stats'),
+        DeclareLaunchArgument(
+            'camera_perf_topic', default_value='/teleop/camera_perf'),
         DeclareLaunchArgument('zed_assist_fps', default_value='30.0'),
         DeclareLaunchArgument('zed_assist_jpeg_quality', default_value='88'),
         DeclareLaunchArgument('zed_min_depth_m', default_value='0.15'),

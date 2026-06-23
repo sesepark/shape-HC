@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import time
 
@@ -8,14 +9,18 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy
 from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
+from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool
 from std_msgs.msg import String
+from trajectory_msgs.msg import JointTrajectory
+from trajectory_msgs.msg import JointTrajectoryPoint
 
 
-PANEL_WIDTH = 420
-PANEL_HEIGHT = 520
+PANEL_WIDTH = 560
+PANEL_HEIGHT = 860
 KEY_RELEASE_DEBOUNCE_MS = 60
 MOVE_ACTIONS = ('forward', 'backward', 'left', 'right', 'rot_left', 'rot_right')
+HEAD_ACTIONS = ('head_up', 'head_down', 'head_left', 'head_right')
 ACTION_LABELS = {
     'forward': 'FORWARD',
     'backward': 'BACK',
@@ -23,6 +28,10 @@ ACTION_LABELS = {
     'right': 'RIGHT',
     'rot_left': 'ROT L',
     'rot_right': 'ROT R',
+    'head_up': 'HEAD UP',
+    'head_down': 'HEAD DOWN',
+    'head_left': 'HEAD L',
+    'head_right': 'HEAD R',
 }
 KEY_ACTIONS = {
     'w': 'forward',
@@ -31,6 +40,12 @@ KEY_ACTIONS = {
     'd': 'right',
     'q': 'rot_left',
     'e': 'rot_right',
+}
+HEAD_KEY_ACTIONS = {
+    'up': 'head_up',
+    'down': 'head_down',
+    'left': 'head_left',
+    'right': 'head_right',
 }
 
 
@@ -49,9 +64,20 @@ class OperatorDrivePanel(Node):
         self.declare_parameter('keyboard_enabled_topic', '/teleop/keyboard_drive/enabled')
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('cmd_vel_mux_status_topic', '/teleop/cmd_vel_mux/status')
-        self.declare_parameter('keyboard_linear_x_mps', 0.08)
-        self.declare_parameter('keyboard_linear_y_mps', 0.08)
+        self.declare_parameter('monitor_head_cmd_topic', '/teleop/monitor_head_cmd')
+        self.declare_parameter('head_enabled_topic', '/teleop/head_drive/enabled')
+        self.declare_parameter('head_mux_status_topic', '/teleop/head_mux/status')
+        self.declare_parameter('joint_state_topic', '/joint_states')
+        self.declare_parameter('head_pan_joint', 'head_joint1')
+        self.declare_parameter('head_tilt_joint', 'head_joint2')
+        self.declare_parameter('keyboard_linear_x_mps', 0.12)
+        self.declare_parameter('keyboard_linear_y_mps', 0.12)
         self.declare_parameter('keyboard_angular_z_radps', 0.20)
+        self.declare_parameter('head_pan_step_deg', 3.0)
+        self.declare_parameter('head_tilt_step_deg', 3.0)
+        self.declare_parameter('head_min_rad', -1.0)
+        self.declare_parameter('head_max_rad', 1.0)
+        self.declare_parameter('head_command_duration_s', 0.25)
         self.declare_parameter('click_jog_duration_s', 0.25)
         self.declare_parameter('mouse_hold_timeout_s', 0.75)
         self.declare_parameter('mouse_max_hold_s', 8.0)
@@ -74,12 +100,31 @@ class OperatorDrivePanel(Node):
         self.cmd_vel_topic = str(self.get_parameter('cmd_vel_topic').value).strip()
         self.cmd_vel_mux_status_topic = str(
             self.get_parameter('cmd_vel_mux_status_topic').value).strip()
+        self.monitor_head_cmd_topic = str(
+            self.get_parameter('monitor_head_cmd_topic').value).strip()
+        self.head_enabled_topic = str(
+            self.get_parameter('head_enabled_topic').value).strip()
+        self.head_mux_status_topic = str(
+            self.get_parameter('head_mux_status_topic').value).strip()
+        self.joint_state_topic = str(self.get_parameter('joint_state_topic').value).strip()
+        self.head_pan_joint = str(self.get_parameter('head_pan_joint').value).strip()
+        self.head_tilt_joint = str(self.get_parameter('head_tilt_joint').value).strip()
         self.keyboard_linear_x_mps = max(
             float(self.get_parameter('keyboard_linear_x_mps').value), 0.0)
         self.keyboard_linear_y_mps = max(
             float(self.get_parameter('keyboard_linear_y_mps').value), 0.0)
         self.keyboard_angular_z_radps = max(
             float(self.get_parameter('keyboard_angular_z_radps').value), 0.0)
+        self.head_pan_step_rad = math.radians(
+            max(float(self.get_parameter('head_pan_step_deg').value), 0.1))
+        self.head_tilt_step_rad = math.radians(
+            max(float(self.get_parameter('head_tilt_step_deg').value), 0.1))
+        self.head_min_rad = float(self.get_parameter('head_min_rad').value)
+        self.head_max_rad = float(self.get_parameter('head_max_rad').value)
+        if self.head_min_rad > self.head_max_rad:
+            self.head_min_rad, self.head_max_rad = self.head_max_rad, self.head_min_rad
+        self.head_command_duration_s = max(
+            float(self.get_parameter('head_command_duration_s').value), 0.05)
         self.click_jog_duration_s = max(
             float(self.get_parameter('click_jog_duration_s').value), 0.05)
         self.mouse_hold_timeout_s = max(
@@ -92,15 +137,22 @@ class OperatorDrivePanel(Node):
         self.headless_ok = self._as_bool(self.get_parameter('headless_ok').value)
 
         self.drive_enabled = False
+        self.head_enabled = False
         self.focus_active = False
         self.pressed_actions = set()
         self.release_jobs = {}
         self.mouse_action = ''
         self.mouse_hold_started_s = 0.0
+        self.timed_motion = None
         self.status_text = 'LOCKED'
+        self.head_status_text = 'HEAD LOCKED'
         self.active_text = '--'
         self.last_mux_status = {}
         self.last_mux_status_time_s = 0.0
+        self.last_head_mux_status = {}
+        self.last_head_mux_status_time_s = 0.0
+        self.latest_head_position = {}
+        self.latest_joint_state_time_s = 0.0
         self.gui_available = False
         self.root = None
         self.tk = None
@@ -115,14 +167,25 @@ class OperatorDrivePanel(Node):
         enabled_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.cmd_pub = self.create_publisher(Twist, self.keyboard_cmd_vel_topic, drive_qos)
         self.enabled_pub = self.create_publisher(Bool, self.keyboard_enabled_topic, enabled_qos)
+        self.head_cmd_pub = self.create_publisher(
+            JointTrajectory, self.monitor_head_cmd_topic, 10)
+        self.head_enabled_pub = self.create_publisher(
+            Bool, self.head_enabled_topic, enabled_qos)
         self.ok_pub = self.create_publisher(String, self.operator_ok_topic, 10)
         self.mux_status_sub = None
         if self.cmd_vel_mux_status_topic:
             self.mux_status_sub = self.create_subscription(
                 String, self.cmd_vel_mux_status_topic, self._mux_status_callback, 10)
+        self.head_mux_status_sub = None
+        if self.head_mux_status_topic:
+            self.head_mux_status_sub = self.create_subscription(
+                String, self.head_mux_status_topic, self._head_mux_status_callback, 10)
+        if self.joint_state_topic:
+            self.create_subscription(JointState, self.joint_state_topic, self._joint_state_callback, 10)
 
         self._init_window()
         self._publish_enabled()
+        self._publish_head_enabled()
         if not self.gui_available:
             self.headless_timer = self.create_timer(self.tick_period_s, self._headless_tick)
         self.get_logger().info(
@@ -133,8 +196,10 @@ class OperatorDrivePanel(Node):
     def destroy_node(self):
         self.closing = True
         self.drive_enabled = False
+        self.head_enabled = False
         self._clear_motion('SHUTDOWN - STOPPED')
         self._publish_enabled()
+        self._publish_head_enabled()
         self._destroy_window()
         super().destroy_node()
 
@@ -168,10 +233,34 @@ class OperatorDrivePanel(Node):
         self.last_mux_status = status if isinstance(status, dict) else {}
         self.last_mux_status_time_s = self._now_s()
 
+    def _head_mux_status_callback(self, msg):
+        try:
+            status = json.loads(msg.data)
+        except (TypeError, ValueError):
+            status = {}
+        self.last_head_mux_status = status if isinstance(status, dict) else {}
+        self.last_head_mux_status_time_s = self._now_s()
+
+    def _joint_state_callback(self, msg):
+        now_s = self._now_s()
+        for joint in (self.head_pan_joint, self.head_tilt_joint):
+            if joint in msg.name:
+                index = msg.name.index(joint)
+                if index < len(msg.position):
+                    self.latest_head_position[joint] = float(msg.position[index])
+        if self.head_pan_joint in self.latest_head_position and self.head_tilt_joint in self.latest_head_position:
+            self.latest_joint_state_time_s = now_s
+
     def _mux_status_fresh(self):
         return (
             self.last_mux_status_time_s > 0.0 and
             (self._now_s() - self.last_mux_status_time_s) <= 1.0
+        )
+
+    def _head_mux_status_fresh(self):
+        return (
+            self.last_head_mux_status_time_s > 0.0 and
+            (self._now_s() - self.last_head_mux_status_time_s) <= 1.0
         )
 
     def _cmd_vel_publisher_count(self):
@@ -270,6 +359,10 @@ class OperatorDrivePanel(Node):
         self.status_var = tk.StringVar(value='status: LOCKED')
         self.active_var = tk.StringVar(value='active: --    mux: --')
         self.speed_var = tk.StringVar(value=self._speed_text())
+        self.distance_cm_var = tk.StringVar(value='10')
+        self.rotate_deg_var = tk.StringVar(value='10')
+        self.head_var = tk.StringVar(value='head: --')
+        self.head_drive_var = tk.StringVar(value='HEAD LOCKED')
 
         outer = tk.Frame(root, bg='#202226')
         outer.pack(fill='both', expand=True, padx=16, pady=14)
@@ -335,7 +428,7 @@ class OperatorDrivePanel(Node):
         self.speed_label.pack(fill='x', pady=(2, 12))
 
         grid = tk.Frame(outer, bg='#202226')
-        grid.pack(fill='both', expand=True)
+        grid.pack(fill='x', expand=False)
         for col in range(3):
             grid.grid_columnconfigure(col, weight=1)
         for row in range(4):
@@ -359,6 +452,96 @@ class OperatorDrivePanel(Node):
         self._make_motion_button(grid, 'BACK', 'backward', 2, 1)
         self._make_motion_button(grid, 'ROT L', 'rot_left', 3, 0)
         self._make_motion_button(grid, 'ROT R', 'rot_right', 3, 2)
+
+        precise_frame = tk.LabelFrame(
+            outer,
+            text='DISTANCE / ANGLE JOG',
+            bg='#202226',
+            fg='#e6edf3',
+            font=('Helvetica', 11, 'bold'),
+            labelanchor='n',
+        )
+        precise_frame.pack(fill='x', pady=(12, 0))
+        for col in range(5):
+            precise_frame.grid_columnconfigure(col, weight=1)
+        tk.Label(
+            precise_frame,
+            text='cm',
+            bg='#202226',
+            fg='#b7c2cc',
+            font=('Helvetica', 10),
+        ).grid(row=0, column=0, sticky='e', padx=4, pady=4)
+        self.distance_entry = tk.Entry(
+            precise_frame,
+            textvariable=self.distance_cm_var,
+            width=7,
+            justify='center',
+            font=('Helvetica', 11),
+        )
+        self.distance_entry.grid(row=0, column=1, sticky='ew', padx=4, pady=4)
+        tk.Label(
+            precise_frame,
+            text='deg',
+            bg='#202226',
+            fg='#b7c2cc',
+            font=('Helvetica', 10),
+        ).grid(row=0, column=2, sticky='e', padx=4, pady=4)
+        self.rotate_entry = tk.Entry(
+            precise_frame,
+            textvariable=self.rotate_deg_var,
+            width=7,
+            justify='center',
+            font=('Helvetica', 11),
+        )
+        self.rotate_entry.grid(row=0, column=3, sticky='ew', padx=4, pady=4)
+        tk.Button(
+            precise_frame,
+            text='STOP',
+            command=lambda: self._clear_motion('STOP - STOPPED'),
+            font=('Helvetica', 10, 'bold'),
+            bg='#7a3232',
+            fg='#ffffff',
+        ).grid(row=0, column=4, sticky='ew', padx=4, pady=4)
+        self._make_timed_button(precise_frame, 'FWD', 'forward', 1, 1)
+        self._make_timed_button(precise_frame, 'LEFT', 'left', 2, 0)
+        self._make_timed_button(precise_frame, 'RIGHT', 'right', 2, 2)
+        self._make_timed_button(precise_frame, 'BACK', 'backward', 3, 1)
+        self._make_timed_button(precise_frame, 'ROT L', 'rot_left', 2, 3)
+        self._make_timed_button(precise_frame, 'ROT R', 'rot_right', 2, 4)
+
+        head_frame = tk.LabelFrame(
+            outer,
+            text='ZED / HEAD',
+            bg='#202226',
+            fg='#e6edf3',
+            font=('Helvetica', 11, 'bold'),
+            labelanchor='n',
+        )
+        head_frame.pack(fill='x', pady=(12, 0))
+        for col in range(3):
+            head_frame.grid_columnconfigure(col, weight=1)
+        self.head_drive_button = tk.Button(
+            head_frame,
+            textvariable=self.head_drive_var,
+            command=lambda: self._set_head_enabled(not self.head_enabled),
+            font=('Helvetica', 11, 'bold'),
+            height=1,
+            bg='#5b4444',
+            fg='#ffffff',
+        )
+        self.head_drive_button.grid(row=0, column=0, columnspan=3, sticky='ew', padx=5, pady=5)
+        tk.Label(
+            head_frame,
+            textvariable=self.head_var,
+            bg='#202226',
+            fg='#b7c2cc',
+            anchor='w',
+            font=('Helvetica', 10),
+        ).grid(row=1, column=0, columnspan=3, sticky='ew', padx=5, pady=(0, 5))
+        self._make_head_button(head_frame, 'UP', 'head_up', 2, 1)
+        self._make_head_button(head_frame, 'LEFT', 'head_left', 3, 0)
+        self._make_head_button(head_frame, 'RIGHT', 'head_right', 3, 2)
+        self._make_head_button(head_frame, 'DOWN', 'head_down', 4, 1)
 
         ok_button = tk.Button(
             outer,
@@ -397,6 +580,32 @@ class OperatorDrivePanel(Node):
         button.bind('<ButtonRelease-1>', lambda event, action=action: self._mouse_release(action))
         self.action_buttons[action] = button
 
+    def _make_timed_button(self, parent, label, action, row, col):
+        button = self.tk.Button(
+            parent,
+            text=label,
+            font=('Helvetica', 10, 'bold'),
+            bg='#344258',
+            fg='#ffffff',
+            activebackground='#415a78',
+            activeforeground='#ffffff',
+            command=lambda action=action: self._start_timed_motion(action),
+        )
+        button.grid(row=row, column=col, sticky='ew', padx=4, pady=4)
+
+    def _make_head_button(self, parent, label, action, row, col):
+        button = self.tk.Button(
+            parent,
+            text=label,
+            font=('Helvetica', 11, 'bold'),
+            bg='#344258',
+            fg='#ffffff',
+            activebackground='#415a78',
+            activeforeground='#ffffff',
+            command=lambda action=action: self._head_jog(action),
+        )
+        button.grid(row=row, column=col, sticky='nsew', padx=5, pady=5)
+
     def _request_initial_focus(self):
         if self.root is None or self.closing:
             return
@@ -434,14 +643,24 @@ class OperatorDrivePanel(Node):
 
     def _on_key_press(self, event):
         key = str(event.keysym).lower()
+        if self._event_from_entry(event):
+            return
         if key == 'k':
             self._set_drive_enabled(not self.drive_enabled)
+            return
+        if key == 'h':
+            self._set_head_enabled(not self.head_enabled)
             return
         if key == 'space':
             self._clear_motion('SPACE - STOPPED')
             return
         if key == 'o':
             self._send_ok()
+            return
+
+        head_action = HEAD_KEY_ACTIONS.get(key)
+        if head_action is not None:
+            self._head_jog(head_action)
             return
 
         action = KEY_ACTIONS.get(key)
@@ -454,6 +673,15 @@ class OperatorDrivePanel(Node):
         self.status_text = f'KEY {ACTION_LABELS[action]}'
         self._publish_current_command()
         self._update_display()
+
+    def _event_from_entry(self, event):
+        widget = getattr(event, 'widget', None)
+        if widget is None or self.tk is None:
+            return False
+        try:
+            return isinstance(widget, self.tk.Entry)
+        except TypeError:
+            return False
 
     def _on_key_release(self, event):
         action = KEY_ACTIONS.get(str(event.keysym).lower())
@@ -540,11 +768,18 @@ class OperatorDrivePanel(Node):
         self._publish_enabled()
         self._update_display()
 
+    def _set_head_enabled(self, enabled):
+        self.head_enabled = bool(enabled)
+        self.head_status_text = 'HEAD ON' if self.head_enabled else 'HEAD LOCKED'
+        self._publish_head_enabled()
+        self._update_display()
+
     def _clear_motion(self, status_text=None):
         self._cancel_all_release_jobs()
         self.pressed_actions.clear()
         self.mouse_action = ''
         self.mouse_hold_started_s = 0.0
+        self.timed_motion = None
         if status_text:
             self.status_text = status_text
         elif self.drive_enabled:
@@ -557,6 +792,9 @@ class OperatorDrivePanel(Node):
             self.drive_enabled = False
             self._clear_motion('HEADLESS - DRIVE DISABLED')
             self._publish_enabled()
+        if self.head_enabled:
+            self.head_enabled = False
+            self._publish_head_enabled()
 
     def _gui_tick(self):
         if self.closing or self.root is None:
@@ -580,6 +818,12 @@ class OperatorDrivePanel(Node):
                 self.mouse_action = ''
                 self.mouse_hold_started_s = 0.0
                 self.status_text = 'MOUSE HOLD TIMEOUT - STOPPED'
+        if self.timed_motion:
+            end_s = float(self.timed_motion.get('end_s') or 0.0)
+            if time.time() >= end_s:
+                label = str(self.timed_motion.get('label') or 'TIMED')
+                self.timed_motion = None
+                self.status_text = f'{label} DONE - STOPPED'
         self._publish_current_command()
 
     def _publish_current_command(self):
@@ -596,6 +840,11 @@ class OperatorDrivePanel(Node):
         msg.data = bool(self.drive_enabled)
         self.enabled_pub.publish(msg)
 
+    def _publish_head_enabled(self):
+        msg = Bool()
+        msg.data = bool(self.head_enabled)
+        self.head_enabled_pub.publish(msg)
+
     def _active_actions(self):
         actions = set(self.pressed_actions)
         if self.mouse_action:
@@ -603,6 +852,10 @@ class OperatorDrivePanel(Node):
         return actions
 
     def _make_twist(self):
+        if self.timed_motion:
+            twist = self.timed_motion.get('twist') or Twist()
+            label = str(self.timed_motion.get('label') or 'TIMED')
+            return twist, label
         actions = self._active_actions()
         twist = Twist()
         twist.linear.x = self._axis_value(actions, 'forward', 'backward',
@@ -622,6 +875,123 @@ class OperatorDrivePanel(Node):
         if negative and not positive:
             return -magnitude
         return 0.0
+
+    def _start_timed_motion(self, action):
+        self._focus_panel()
+        if not self._ready_for_manual_drive(require_focus=False):
+            return
+        twist = Twist()
+        label = ACTION_LABELS.get(action, action.upper())
+        if action in ('forward', 'backward', 'left', 'right'):
+            distance_m = max(self._parse_float(self.distance_cm_var.get(), 0.0), 0.0) / 100.0
+            if distance_m <= 0.0:
+                self.status_text = 'DISTANCE MUST BE > 0'
+                self._update_display()
+                return
+            if action == 'forward':
+                twist.linear.x = self.keyboard_linear_x_mps
+            elif action == 'backward':
+                twist.linear.x = -self.keyboard_linear_x_mps
+            elif action == 'left':
+                twist.linear.y = self.keyboard_linear_y_mps
+            elif action == 'right':
+                twist.linear.y = -self.keyboard_linear_y_mps
+            speed = abs(twist.linear.x or twist.linear.y)
+            duration_s = distance_m / max(speed, 1e-6)
+            label = f'{label} {distance_m * 100.0:.1f}cm'
+        elif action in ('rot_left', 'rot_right'):
+            angle_rad = math.radians(max(self._parse_float(self.rotate_deg_var.get(), 0.0), 0.0))
+            if angle_rad <= 0.0:
+                self.status_text = 'ANGLE MUST BE > 0'
+                self._update_display()
+                return
+            twist.angular.z = (
+                self.keyboard_angular_z_radps
+                if action == 'rot_left'
+                else -self.keyboard_angular_z_radps
+            )
+            duration_s = angle_rad / max(abs(twist.angular.z), 1e-6)
+            label = f'{label} {math.degrees(angle_rad):.1f}deg'
+        else:
+            return
+
+        self._cancel_all_release_jobs()
+        self.pressed_actions.clear()
+        self.mouse_action = ''
+        self.mouse_hold_started_s = 0.0
+        self.timed_motion = {
+            'twist': twist,
+            'end_s': time.time() + duration_s,
+            'label': label,
+        }
+        self.status_text = f'TIMED {label} {duration_s:.2f}s'
+        self._publish_current_command()
+        self._update_display()
+
+    def _parse_float(self, value, default):
+        try:
+            return float(str(value).strip())
+        except (TypeError, ValueError):
+            return default
+
+    def _head_jog(self, action):
+        self._focus_panel()
+        if not self.head_enabled:
+            self.head_status_text = 'HEAD LOCKED - CLICK HEAD ON FIRST'
+            self._update_display()
+            return
+        if not self._head_mux_connected():
+            self.head_status_text = 'HEAD ON - WAITING FOR MUX'
+            self._update_display()
+            return
+        pan = self.latest_head_position.get(self.head_pan_joint)
+        tilt = self.latest_head_position.get(self.head_tilt_joint)
+        if pan is None or tilt is None:
+            self.head_status_text = 'HEAD WAITING FOR JOINT STATE'
+            self._update_display()
+            return
+
+        if action == 'head_left':
+            pan += self.head_pan_step_rad
+        elif action == 'head_right':
+            pan -= self.head_pan_step_rad
+        elif action == 'head_up':
+            tilt += self.head_tilt_step_rad
+        elif action == 'head_down':
+            tilt -= self.head_tilt_step_rad
+        else:
+            return
+
+        pan = self._clamp(pan, self.head_min_rad, self.head_max_rad)
+        tilt = self._clamp(tilt, self.head_min_rad, self.head_max_rad)
+        msg = JointTrajectory()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.joint_names = [self.head_pan_joint, self.head_tilt_joint]
+        point = JointTrajectoryPoint()
+        point.positions = [pan, tilt]
+        point.velocities = [0.0, 0.0]
+        point.accelerations = [0.0, 0.0]
+        point.time_from_start.sec = int(self.head_command_duration_s)
+        point.time_from_start.nanosec = int(
+            (self.head_command_duration_s % 1.0) * 1_000_000_000)
+        msg.points.append(point)
+        self.head_cmd_pub.publish(msg)
+        self.latest_head_position[self.head_pan_joint] = pan
+        self.latest_head_position[self.head_tilt_joint] = tilt
+        self.head_status_text = (
+            f'{ACTION_LABELS.get(action, "HEAD")} '
+            f'pan={pan:+.2f} tilt={tilt:+.2f}'
+        )
+        self._update_display()
+
+    def _head_mux_connected(self):
+        return (
+            self.count_subscribers(self.monitor_head_cmd_topic) > 0 and
+            self.count_subscribers(self.head_enabled_topic) > 0
+        )
+
+    def _clamp(self, value, low, high):
+        return min(max(value, low), high)
 
     def _speed_text(self):
         return (
@@ -660,12 +1030,42 @@ class OperatorDrivePanel(Node):
         self.status_var.set(f'status: {self.status_text}')
         self.active_var.set(f'active: {self.active_text}    mux: {self._mux_text(mux_connected)}')
         self.speed_var.set(self._speed_text())
+        self._update_head_display()
 
         button_bg = '#344258' if self.drive_enabled else '#33363d'
         active_bg = '#4f6f91'
         for action, button in self.action_buttons.items():
             bg = active_bg if action in self._active_actions() else button_bg
             button.configure(bg=bg, activebackground=active_bg)
+
+    def _update_head_display(self):
+        head_mux_connected = self._head_mux_connected()
+        if self.head_enabled and head_mux_connected:
+            head_text = 'HEAD ON - MONITOR ZED'
+            head_bg = '#2d7d4c'
+        elif self.head_enabled:
+            head_text = 'HEAD ON - WAITING FOR MUX'
+            head_bg = '#6d5228'
+        elif head_mux_connected:
+            head_text = 'HEAD LOCKED - LEADER HEAD'
+            head_bg = '#5b4444'
+        else:
+            head_text = 'HEAD LOCKED / MUX OFF'
+            head_bg = '#6d5228'
+        self.head_drive_var.set(head_text)
+        self.head_drive_button.configure(bg=head_bg, fg='#ffffff', activebackground=head_bg)
+
+        pan = self.latest_head_position.get(self.head_pan_joint)
+        tilt = self.latest_head_position.get(self.head_tilt_joint)
+        if pan is None or tilt is None:
+            pos_text = 'pos --,--'
+        else:
+            age_s = self._now_s() - self.latest_joint_state_time_s
+            pos_text = f'pos pan={pan:+.2f} tilt={tilt:+.2f} age={age_s:.1f}s'
+        owner = '--'
+        if self._head_mux_status_fresh():
+            owner = self.last_head_mux_status.get('owner', '--')
+        self.head_var.set(f'{self.head_status_text} | owner={owner} | {pos_text}')
 
     def _send_ok(self):
         payload = {
@@ -683,8 +1083,10 @@ class OperatorDrivePanel(Node):
     def _on_close(self):
         self.closing = True
         self.drive_enabled = False
+        self.head_enabled = False
         self._clear_motion('CLOSED - STOPPED')
         self._publish_enabled()
+        self._publish_head_enabled()
         self._destroy_window()
 
     def _destroy_window(self):
