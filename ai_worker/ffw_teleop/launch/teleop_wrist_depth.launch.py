@@ -63,6 +63,7 @@ def make_wrist_camera_launch(condition):
             'pointcloud.enable2': 'false',
             'colorizer.enable1': 'false',
             'colorizer.enable2': 'false',
+            'left_wrist_start_delay_s': LaunchConfiguration('left_wrist_start_delay_s'),
             'right_wrist_start_delay_s': LaunchConfiguration('right_wrist_start_delay_s'),
         }.items(),
     )
@@ -434,7 +435,7 @@ def generate_launch_description():
         DeclareLaunchArgument('zed_component_min_area_px', default_value='80.0'),
         DeclareLaunchArgument(
             'left_depth_profile',
-            default_value=wrist_high_value('480,270,15', '640,480,30')),
+            default_value=wrist_high_value('480,270,5', '640,480,30')),
         DeclareLaunchArgument(
             'right_depth_profile',
             default_value=wrist_high_value('480,270,30', '640,480,30')),
@@ -454,7 +455,11 @@ def generate_launch_description():
             default_value=profile_value('true', 'true', 'true', 'true')),
         DeclareLaunchArgument('enable_left_align_depth', default_value='false'),
         DeclareLaunchArgument('enable_right_align_depth', default_value='false'),
-        DeclareLaunchArgument('right_wrist_start_delay_s', default_value='15.0'),
+        DeclareLaunchArgument('left_wrist_start_delay_s', default_value='15.0'),
+        DeclareLaunchArgument(
+            'right_wrist_start_delay_s',
+            default_value='0.0',
+            description='Deprecated; right wrist launches first and is no longer delayed.'),
         DeclareLaunchArgument(
             'depth_topic',
             default_value='/camera_right/camera_right/depth/image_rect_raw'),

@@ -54,7 +54,7 @@ local_parameters = [
      'description': 'choose left wrist camera by serial number'},
     {'name': 'serial_no2', 'default': serial2,
      'description': 'choose right wrist camera by serial number'},
-    {'name': 'depth_module.depth_profile1', 'default': '480,270,15',
+    {'name': 'depth_module.depth_profile1', 'default': '480,270,5',
      'description': 'left wrist depth stream profile'},
     {'name': 'depth_module.depth_profile2', 'default': '480,270,30',
      'description': 'right wrist depth stream profile'},
@@ -82,8 +82,10 @@ local_parameters = [
      'description': 'keep left RealSense colorizer disabled for teleoperation'},
     {'name': 'colorizer.enable2', 'default': 'false',
      'description': 'keep right RealSense colorizer disabled for teleoperation'},
-    {'name': 'right_wrist_start_delay_s', 'default': '15.0',
-     'description': 'delay before launching the right wrist camera'},
+    {'name': 'left_wrist_start_delay_s', 'default': '15.0',
+     'description': 'delay before launching the lower-priority left wrist camera'},
+    {'name': 'right_wrist_start_delay_s', 'default': '0.0',
+     'description': 'deprecated; right wrist now launches first for teleoperation priority'},
 ]
 
 
@@ -109,28 +111,28 @@ def generate_launch_description():
         rs_launch.declare_configurable_parameters(params2) +
         [
             GroupAction(
-                condition=IfCondition(LaunchConfiguration('start_left_wrist')),
+                condition=IfCondition(LaunchConfiguration('start_right_wrist')),
                 actions=[
                     OpaqueFunction(
                         function=rs_launch.launch_setup,
                         kwargs={
-                            'params': set_configurable_parameters(params1),
-                            'param_name_suffix': '1',
+                            'params': set_configurable_parameters(params2),
+                            'param_name_suffix': '2',
                         },
                     ),
                 ],
             ),
             TimerAction(
-                period=LaunchConfiguration('right_wrist_start_delay_s'),
+                period=LaunchConfiguration('left_wrist_start_delay_s'),
                 actions=[
                     GroupAction(
-                        condition=IfCondition(LaunchConfiguration('start_right_wrist')),
+                        condition=IfCondition(LaunchConfiguration('start_left_wrist')),
                         actions=[
                             OpaqueFunction(
                                 function=rs_launch.launch_setup,
                                 kwargs={
-                                    'params': set_configurable_parameters(params2),
-                                    'param_name_suffix': '2',
+                                    'params': set_configurable_parameters(params1),
+                                    'param_name_suffix': '1',
                                 },
                             ),
                         ],
