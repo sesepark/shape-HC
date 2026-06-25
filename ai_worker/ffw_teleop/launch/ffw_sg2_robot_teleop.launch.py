@@ -68,7 +68,7 @@ def generate_launch_description():
             'bandwidth_panel_topic', default_value='/teleop/bandwidth_monitor/compressed'),
         DeclareLaunchArgument('right_wrist_start_delay_s', default_value='15.0'),
         DeclareLaunchArgument('wrist_high_profile', default_value='false'),
-        DeclareLaunchArgument('left_depth_profile', default_value='480,270,30'),
+        DeclareLaunchArgument('left_depth_profile', default_value='480,270,15'),
         DeclareLaunchArgument('right_depth_profile', default_value='480,270,30'),
         DeclareLaunchArgument('left_color_profile', default_value='424,240,15'),
         DeclareLaunchArgument('right_color_profile', default_value='424,240,15'),

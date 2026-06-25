@@ -434,7 +434,7 @@ def generate_launch_description():
         DeclareLaunchArgument('zed_component_min_area_px', default_value='80.0'),
         DeclareLaunchArgument(
             'left_depth_profile',
-            default_value=wrist_high_value('480,270,30', '640,480,30')),
+            default_value=wrist_high_value('480,270,15', '640,480,30')),
         DeclareLaunchArgument(
             'right_depth_profile',
             default_value=wrist_high_value('480,270,30', '640,480,30')),

@@ -17,7 +17,7 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 
 
 PANEL_WIDTH = 560
-PANEL_HEIGHT = 940
+PANEL_HEIGHT = 980
 KEY_RELEASE_DEBOUNCE_MS = 60
 MOVE_ACTIONS = ('forward', 'backward', 'left', 'right', 'rot_left', 'rot_right')
 HEAD_ACTIONS = ('head_up', 'head_down', 'head_left', 'head_right')
@@ -70,9 +70,11 @@ class OperatorDrivePanel(Node):
         self.declare_parameter('joint_state_topic', '/joint_states')
         self.declare_parameter('head_pan_joint', 'head_joint1')
         self.declare_parameter('head_tilt_joint', 'head_joint2')
-        self.declare_parameter('keyboard_linear_x_mps', 0.12)
-        self.declare_parameter('keyboard_linear_y_mps', 0.12)
-        self.declare_parameter('keyboard_angular_z_radps', 0.20)
+        self.declare_parameter('keyboard_linear_x_mps', 0.24)
+        self.declare_parameter('keyboard_linear_y_mps', 0.24)
+        self.declare_parameter('keyboard_angular_z_radps', 0.40)
+        self.declare_parameter('default_drive_speed_scale', 0.5)
+        self.declare_parameter('boost_drive_speed_scale', 1.0)
         self.declare_parameter('head_pan_step_deg', 3.0)
         self.declare_parameter('head_tilt_step_deg', 3.0)
         self.declare_parameter('head_min_rad', -1.0)
@@ -117,6 +119,12 @@ class OperatorDrivePanel(Node):
             float(self.get_parameter('keyboard_linear_y_mps').value), 0.0)
         self.keyboard_angular_z_radps = max(
             float(self.get_parameter('keyboard_angular_z_radps').value), 0.0)
+        self.default_drive_speed_scale = self._clamp(
+            float(self.get_parameter('default_drive_speed_scale').value), 0.05, 1.0)
+        self.boost_drive_speed_scale = self._clamp(
+            float(self.get_parameter('boost_drive_speed_scale').value), 0.05, 1.0)
+        if self.boost_drive_speed_scale < self.default_drive_speed_scale:
+            self.boost_drive_speed_scale = self.default_drive_speed_scale
         self.head_pan_step_rad = math.radians(
             max(float(self.get_parameter('head_pan_step_deg').value), 0.1))
         self.head_tilt_step_rad = math.radians(
@@ -150,6 +158,7 @@ class OperatorDrivePanel(Node):
         self.mouse_action = ''
         self.mouse_hold_started_s = 0.0
         self.timed_motion = None
+        self.drive_speed_scale = self.default_drive_speed_scale
         self.status_text = 'LOCKED'
         self.head_status_text = 'HEAD LOCKED'
         self.active_text = '--'
@@ -394,6 +403,7 @@ class OperatorDrivePanel(Node):
         self.status_var = tk.StringVar(value='status: LOCKED')
         self.active_var = tk.StringVar(value='active: --    mux: --')
         self.speed_var = tk.StringVar(value=self._speed_text())
+        self.speed_button_var = tk.StringVar(value=self._speed_button_text())
         self.distance_cm_var = tk.StringVar(value='10')
         self.rotate_deg_var = tk.StringVar(value='10')
         self.head_var = tk.StringVar(value='head: --')
@@ -462,6 +472,19 @@ class OperatorDrivePanel(Node):
             font=('Helvetica', 10),
         )
         self.speed_label.pack(fill='x', pady=(2, 12))
+
+        self.speed_button = tk.Button(
+            outer,
+            textvariable=self.speed_button_var,
+            command=self._toggle_drive_speed_scale,
+            font=('Helvetica', 11, 'bold'),
+            height=1,
+            bg='#344258',
+            fg='#ffffff',
+            activebackground='#415a78',
+            activeforeground='#ffffff',
+        )
+        self.speed_button.pack(fill='x', pady=(0, 12))
 
         grid = tk.Frame(outer, bg='#202226')
         grid.pack(fill='x', expand=False)
@@ -945,11 +968,11 @@ class OperatorDrivePanel(Node):
         actions = self._active_actions()
         twist = Twist()
         twist.linear.x = self._axis_value(actions, 'forward', 'backward',
-                                          self.keyboard_linear_x_mps)
+                                          self._effective_linear_x_mps())
         twist.linear.y = self._axis_value(actions, 'left', 'right',
-                                          self.keyboard_linear_y_mps)
+                                          self._effective_linear_y_mps())
         twist.angular.z = self._axis_value(actions, 'rot_left', 'rot_right',
-                                           self.keyboard_angular_z_radps)
+                                           self._effective_angular_z_radps())
         active = [ACTION_LABELS[action] for action in MOVE_ACTIONS if action in actions]
         return twist, '+'.join(active) if active else '--'
 
@@ -975,13 +998,13 @@ class OperatorDrivePanel(Node):
                 self._update_display()
                 return
             if action == 'forward':
-                twist.linear.x = self.keyboard_linear_x_mps
+                twist.linear.x = self._effective_linear_x_mps()
             elif action == 'backward':
-                twist.linear.x = -self.keyboard_linear_x_mps
+                twist.linear.x = -self._effective_linear_x_mps()
             elif action == 'left':
-                twist.linear.y = self.keyboard_linear_y_mps
+                twist.linear.y = self._effective_linear_y_mps()
             elif action == 'right':
-                twist.linear.y = -self.keyboard_linear_y_mps
+                twist.linear.y = -self._effective_linear_y_mps()
             speed = abs(twist.linear.x or twist.linear.y)
             duration_s = distance_m / max(speed, 1e-6)
             label = f'{label} {distance_m * 100.0:.1f}cm'
@@ -992,9 +1015,9 @@ class OperatorDrivePanel(Node):
                 self._update_display()
                 return
             twist.angular.z = (
-                self.keyboard_angular_z_radps
+                self._effective_angular_z_radps()
                 if action == 'rot_left'
-                else -self.keyboard_angular_z_radps
+                else -self._effective_angular_z_radps()
             )
             duration_s = angle_rad / max(abs(twist.angular.z), 1e-6)
             label = f'{label} {math.degrees(angle_rad):.1f}deg'
@@ -1079,10 +1102,47 @@ class OperatorDrivePanel(Node):
     def _clamp(self, value, low, high):
         return min(max(value, low), high)
 
+    def _effective_linear_x_mps(self):
+        return self.keyboard_linear_x_mps * self.drive_speed_scale
+
+    def _effective_linear_y_mps(self):
+        return self.keyboard_linear_y_mps * self.drive_speed_scale
+
+    def _effective_angular_z_radps(self):
+        return self.keyboard_angular_z_radps * self.drive_speed_scale
+
+    def _speed_percent(self, scale=None):
+        if scale is None:
+            scale = self.drive_speed_scale
+        return int(round(float(scale) * 100.0))
+
+    def _speed_button_text(self):
+        if abs(self.drive_speed_scale - self.boost_drive_speed_scale) < 1e-3:
+            target = self._speed_percent(self.default_drive_speed_scale)
+        else:
+            target = self._speed_percent(self.boost_drive_speed_scale)
+        return f'SPEED {self._speed_percent()}%  |  TOGGLE {target}%'
+
+    def _toggle_drive_speed_scale(self):
+        if abs(self.drive_speed_scale - self.boost_drive_speed_scale) < 1e-3:
+            self.drive_speed_scale = self.default_drive_speed_scale
+        else:
+            self.drive_speed_scale = self.boost_drive_speed_scale
+        if self.timed_motion:
+            self.timed_motion = None
+            self.status_text = f'SPEED {self._speed_percent()}% - TIMED STOPPED'
+        else:
+            self.status_text = f'SPEED {self._speed_percent()}%'
+        self._publish_current_command()
+        self._update_display()
+
     def _speed_text(self):
         return (
-            f'speed: x/y {self.keyboard_linear_x_mps:.2f} m/s, '
-            f'rot {self.keyboard_angular_z_radps:.2f} rad/s'
+            f'speed: {self._speed_percent()}% '
+            f'x/y {self._effective_linear_x_mps():.2f}/{self._effective_linear_y_mps():.2f} m/s, '
+            f'rot {self._effective_angular_z_radps():.2f} rad/s '
+            f'(max {self.keyboard_linear_x_mps:.2f}/{self.keyboard_linear_y_mps:.2f}, '
+            f'{self.keyboard_angular_z_radps:.2f})'
         )
 
     def _update_display(self):
@@ -1116,6 +1176,7 @@ class OperatorDrivePanel(Node):
         self.status_var.set(f'status: {self.status_text}')
         self.active_var.set(f'active: {self.active_text}    mux: {self._mux_text(mux_connected)}')
         self.speed_var.set(self._speed_text())
+        self.speed_button_var.set(self._speed_button_text())
         self.layout_status_var.set(self.last_layout_status)
         self._update_head_display()
 

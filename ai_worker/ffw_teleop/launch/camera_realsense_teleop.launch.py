@@ -54,7 +54,7 @@ local_parameters = [
      'description': 'choose left wrist camera by serial number'},
     {'name': 'serial_no2', 'default': serial2,
      'description': 'choose right wrist camera by serial number'},
-    {'name': 'depth_module.depth_profile1', 'default': '480,270,30',
+    {'name': 'depth_module.depth_profile1', 'default': '480,270,15',
      'description': 'left wrist depth stream profile'},
     {'name': 'depth_module.depth_profile2', 'default': '480,270,30',
      'description': 'right wrist depth stream profile'},

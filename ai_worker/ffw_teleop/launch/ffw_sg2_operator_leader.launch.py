@@ -78,6 +78,8 @@ def generate_launch_description():
     keyboard_linear_x_mps = LaunchConfiguration('keyboard_linear_x_mps')
     keyboard_linear_y_mps = LaunchConfiguration('keyboard_linear_y_mps')
     keyboard_angular_z_radps = LaunchConfiguration('keyboard_angular_z_radps')
+    default_drive_speed_scale = LaunchConfiguration('default_drive_speed_scale')
+    boost_drive_speed_scale = LaunchConfiguration('boost_drive_speed_scale')
     keyboard_publish_hz = LaunchConfiguration('keyboard_publish_hz')
     keyboard_key_timeout_s = LaunchConfiguration('keyboard_key_timeout_s')
     mouse_hold_timeout_s = LaunchConfiguration('mouse_hold_timeout_s')
@@ -270,7 +272,7 @@ def generate_launch_description():
         parameters=[{
             'window_title': 'Teleop Drive Control',
             'window_width': 560,
-            'window_height': 940,
+            'window_height': 980,
             'window_x': 80,
             'window_y': 360,
             'keyboard_cmd_vel_topic': keyboard_cmd_vel_topic,
@@ -286,6 +288,8 @@ def generate_launch_description():
             'keyboard_linear_x_mps': keyboard_linear_x_mps,
             'keyboard_linear_y_mps': keyboard_linear_y_mps,
             'keyboard_angular_z_radps': keyboard_angular_z_radps,
+            'default_drive_speed_scale': default_drive_speed_scale,
+            'boost_drive_speed_scale': boost_drive_speed_scale,
             'click_jog_duration_s': keyboard_key_timeout_s,
             'mouse_hold_timeout_s': mouse_hold_timeout_s,
             'mouse_max_hold_s': mouse_max_hold_s,
@@ -349,9 +353,11 @@ def generate_launch_description():
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
         DeclareLaunchArgument(
             'cmd_vel_mux_status_topic', default_value='/teleop/cmd_vel_mux/status'),
-        DeclareLaunchArgument('keyboard_linear_x_mps', default_value='0.12'),
-        DeclareLaunchArgument('keyboard_linear_y_mps', default_value='0.12'),
-        DeclareLaunchArgument('keyboard_angular_z_radps', default_value='0.20'),
+        DeclareLaunchArgument('keyboard_linear_x_mps', default_value='0.24'),
+        DeclareLaunchArgument('keyboard_linear_y_mps', default_value='0.24'),
+        DeclareLaunchArgument('keyboard_angular_z_radps', default_value='0.40'),
+        DeclareLaunchArgument('default_drive_speed_scale', default_value='0.5'),
+        DeclareLaunchArgument('boost_drive_speed_scale', default_value='1.0'),
         DeclareLaunchArgument('keyboard_publish_hz', default_value='30.0'),
         DeclareLaunchArgument('keyboard_key_timeout_s', default_value='0.35'),
         DeclareLaunchArgument('mouse_hold_timeout_s', default_value='0.75'),
