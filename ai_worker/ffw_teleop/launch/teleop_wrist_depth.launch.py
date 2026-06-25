@@ -477,7 +477,7 @@ def generate_launch_description():
             'assist_topic', default_value='/teleop/wrist_right/depth_assist/compressed'),
         DeclareLaunchArgument(
             'right_color_compressed_topic',
-            default_value='/camera_right/camera_right/color/image_rect_raw/compressed'),
+            default_value='/camera_right/camera_right/color/image_raw/compressed'),
         DeclareLaunchArgument(
             'base_compressed_topic',
             default_value='/teleop/wrist_right/color/compressed',
@@ -501,7 +501,7 @@ def generate_launch_description():
             'left_assist_topic', default_value='/teleop/wrist_left/depth_assist/compressed'),
         DeclareLaunchArgument(
             'left_color_compressed_topic',
-            default_value='/camera_left/camera_left/color/image_rect_raw/compressed'),
+            default_value='/camera_left/camera_left/color/image_raw/compressed'),
         DeclareLaunchArgument(
             'left_base_compressed_topic',
             default_value='/teleop/wrist_left/color/compressed',

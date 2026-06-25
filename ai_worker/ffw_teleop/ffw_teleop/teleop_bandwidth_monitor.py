@@ -15,7 +15,7 @@ STREAM_ROWS = (
     ('wrist_right_color', 'R COLOR'),
 )
 DEFAULT_EXPECTED_TOPICS = {
-    'wrist_right_color': '/camera_right/camera_right/color/image_rect_raw/compressed',
+    'wrist_right_color': '/camera_right/camera_right/color/image_raw/compressed',
 }
 
 
