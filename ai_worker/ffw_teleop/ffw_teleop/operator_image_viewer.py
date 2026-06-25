@@ -20,7 +20,6 @@ DEFAULT_STREAMS = [
     'BANDWIDTH|/teleop/bandwidth_monitor/compressed',
     'ZED|/teleop/zed/depth_assist/compressed',
     'L WRIST|/teleop/wrist_left/depth_assist/compressed',
-    'R WRIST|/teleop/wrist_right/depth_assist/compressed',
     'R COLOR|/camera_right/camera_right/color/image_rect_raw/compressed',
 ]
 

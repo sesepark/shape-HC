@@ -12,7 +12,6 @@ from std_msgs.msg import String
 STREAM_ROWS = (
     ('zed', 'ZED'),
     ('wrist_left', 'L WRIST'),
-    ('wrist_right', 'R WRIST'),
     ('wrist_right_color', 'R COLOR'),
 )
 DEFAULT_EXPECTED_TOPICS = {

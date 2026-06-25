@@ -54,7 +54,7 @@ def make_wrist_camera_launch(condition):
             'rgb_camera.color_profile1': LaunchConfiguration('left_color_profile'),
             'rgb_camera.color_profile2': LaunchConfiguration('right_color_profile'),
             'enable_depth1': 'true',
-            'enable_depth2': 'true',
+            'enable_depth2': LaunchConfiguration('enable_right_depth'),
             'enable_color1': LaunchConfiguration('enable_left_color'),
             'enable_color2': LaunchConfiguration('enable_right_color'),
             'align_depth.enable1': LaunchConfiguration('enable_left_align_depth'),
@@ -371,6 +371,7 @@ def generate_launch_description():
             'usb_wrist_right_depth_profile': LaunchConfiguration('right_depth_profile'),
             'usb_wrist_left_color_profile': LaunchConfiguration('left_color_profile'),
             'usb_wrist_right_color_profile': LaunchConfiguration('right_color_profile'),
+            'usb_wrist_right_depth_enabled': LaunchConfiguration('enable_right_depth'),
             'usb_wrist_left_color_enabled': LaunchConfiguration('enable_left_color'),
             'usb_wrist_right_color_enabled': LaunchConfiguration('enable_right_color'),
             'wrist_right_color_compressed_topic': LaunchConfiguration(
@@ -385,7 +386,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_wrist_cameras', default_value='true'),
         DeclareLaunchArgument('start_left_wrist', default_value='true'),
         DeclareLaunchArgument('start_right_wrist', default_value='true'),
-        DeclareLaunchArgument('start_overlay', default_value='true'),
+        DeclareLaunchArgument('start_overlay', default_value='false'),
         DeclareLaunchArgument('start_left_overlay', default_value='true'),
         DeclareLaunchArgument('start_alignment_monitor', default_value='true'),
         DeclareLaunchArgument('start_bandwidth_monitor', default_value='true'),
@@ -453,6 +454,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'enable_right_color',
             default_value=profile_value('true', 'true', 'true', 'true')),
+        DeclareLaunchArgument('enable_right_depth', default_value='false'),
         DeclareLaunchArgument('enable_left_align_depth', default_value='false'),
         DeclareLaunchArgument('enable_right_align_depth', default_value='false'),
         DeclareLaunchArgument('left_wrist_start_delay_s', default_value='15.0'),

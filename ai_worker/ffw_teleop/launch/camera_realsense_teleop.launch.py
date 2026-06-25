@@ -64,7 +64,7 @@ local_parameters = [
      'description': 'right wrist color stream profile'},
     {'name': 'enable_depth1', 'default': 'true',
      'description': 'enable left wrist depth stream'},
-    {'name': 'enable_depth2', 'default': 'true',
+    {'name': 'enable_depth2', 'default': 'false',
      'description': 'enable right wrist depth stream'},
     {'name': 'enable_color1', 'default': 'false',
      'description': 'enable left wrist color stream for local depth overlay blending'},

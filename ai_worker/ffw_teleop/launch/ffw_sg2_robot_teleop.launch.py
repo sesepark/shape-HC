@@ -28,6 +28,7 @@ def generate_launch_description():
     right_color_profile = LaunchConfiguration('right_color_profile')
     enable_left_color = LaunchConfiguration('enable_left_color')
     enable_right_color = LaunchConfiguration('enable_right_color')
+    enable_right_depth = LaunchConfiguration('enable_right_depth')
     base_compressed_fps = LaunchConfiguration('base_compressed_fps')
     base_compressed_jpeg_quality = LaunchConfiguration('base_compressed_jpeg_quality')
 
@@ -51,6 +52,7 @@ def generate_launch_description():
             'right_color_profile': right_color_profile,
             'enable_left_color': enable_left_color,
             'enable_right_color': enable_right_color,
+            'enable_right_depth': enable_right_depth,
             'start_bandwidth_monitor': start_bandwidth_monitor,
             'bandwidth_available_mbps': bandwidth_available_mbps,
             'bandwidth_usb_available_mbps': bandwidth_usb_available_mbps,
@@ -80,6 +82,7 @@ def generate_launch_description():
         DeclareLaunchArgument('right_color_profile', default_value='424,240,15'),
         DeclareLaunchArgument('enable_left_color', default_value='false'),
         DeclareLaunchArgument('enable_right_color', default_value='true'),
+        DeclareLaunchArgument('enable_right_depth', default_value='false'),
         DeclareLaunchArgument('base_compressed_fps', default_value='5.0'),
         DeclareLaunchArgument('base_compressed_jpeg_quality', default_value='60'),
         robot_teleop,
