@@ -26,6 +26,7 @@ def generate_launch_description():
     right_depth_profile = LaunchConfiguration('right_depth_profile')
     left_color_profile = LaunchConfiguration('left_color_profile')
     right_color_profile = LaunchConfiguration('right_color_profile')
+    enable_left_depth = LaunchConfiguration('enable_left_depth')
     enable_left_color = LaunchConfiguration('enable_left_color')
     enable_right_color = LaunchConfiguration('enable_right_color')
     enable_right_depth = LaunchConfiguration('enable_right_depth')
@@ -50,6 +51,7 @@ def generate_launch_description():
             'right_depth_profile': right_depth_profile,
             'left_color_profile': left_color_profile,
             'right_color_profile': right_color_profile,
+            'enable_left_depth': enable_left_depth,
             'enable_left_color': enable_left_color,
             'enable_right_color': enable_right_color,
             'enable_right_depth': enable_right_depth,
@@ -79,10 +81,11 @@ def generate_launch_description():
         DeclareLaunchArgument('left_depth_profile', default_value='480,270,5'),
         DeclareLaunchArgument('right_depth_profile', default_value='480,270,30'),
         DeclareLaunchArgument('left_color_profile', default_value='424,240,15'),
-        DeclareLaunchArgument('right_color_profile', default_value='424,240,15'),
+        DeclareLaunchArgument('right_color_profile', default_value='424,240,30'),
+        DeclareLaunchArgument('enable_left_depth', default_value='false'),
         DeclareLaunchArgument('enable_left_color', default_value='false'),
         DeclareLaunchArgument('enable_right_color', default_value='true'),
-        DeclareLaunchArgument('enable_right_depth', default_value='false'),
+        DeclareLaunchArgument('enable_right_depth', default_value='true'),
         DeclareLaunchArgument('base_compressed_fps', default_value='5.0'),
         DeclareLaunchArgument('base_compressed_jpeg_quality', default_value='60'),
         robot_teleop,

@@ -1061,13 +1061,13 @@ class OperatorDrivePanel(Node):
             return
 
         if action == 'head_up':
-            pan -= self.head_pan_step_rad
-        elif action == 'head_down':
-            pan += self.head_pan_step_rad
-        elif action == 'head_left':
-            tilt += self.head_tilt_step_rad
-        elif action == 'head_right':
             tilt -= self.head_tilt_step_rad
+        elif action == 'head_down':
+            tilt += self.head_tilt_step_rad
+        elif action == 'head_left':
+            pan -= self.head_pan_step_rad
+        elif action == 'head_right':
+            pan += self.head_pan_step_rad
         else:
             return
 

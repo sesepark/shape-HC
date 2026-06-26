@@ -346,7 +346,7 @@ def generate_launch_description():
         DeclareLaunchArgument('head_enabled_topic', default_value='/teleop/head_drive/enabled'),
         DeclareLaunchArgument(
             'head_mux_output_topic',
-            default_value='/leader/joystick_controller_left/joint_trajectory'),
+            default_value='/teleop/head_cmd'),
         DeclareLaunchArgument('head_mux_status_topic', default_value='/teleop/head_mux/status'),
         DeclareLaunchArgument('head_pan_step_deg', default_value='3.0'),
         DeclareLaunchArgument('head_tilt_step_deg', default_value='3.0'),

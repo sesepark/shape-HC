@@ -29,6 +29,7 @@ from launch.substitutions import Command
 from launch.substitutions import FindExecutable
 from launch.substitutions import LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution
+from launch.substitutions import PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -64,6 +65,10 @@ def generate_launch_description():
             default_value='ffw_sg2_follower',
             description='Type of ros2_control',
         ),
+        DeclareLaunchArgument(
+            'head_command_topic',
+            default_value='/teleop/head_cmd',
+            description='Final muxed head trajectory topic for the follower head controller.'),
     ]
 
     start_rviz = LaunchConfiguration('start_rviz')
@@ -78,6 +83,7 @@ def generate_launch_description():
     use_head_eef_tracker = LaunchConfiguration('use_head_eef_tracker')
     init_position_file = LaunchConfiguration('init_position_file')
     ros2_control_type = LaunchConfiguration('ros2_control_type')
+    head_command_topic = LaunchConfiguration('head_command_topic')
 
     robot_description_content = Command([
         PathJoinSubstitution([FindExecutable(name='xacro')]),
@@ -153,8 +159,7 @@ def generate_launch_description():
             '-r /arm_r_controller/joint_trajectory:='
             '/leader/joint_trajectory_command_broadcaster_right/joint_trajectory',
             '--controller-ros-args',
-            '-r /head_controller/joint_trajectory:='
-            '/leader/joystick_controller_left/joint_trajectory',
+            PythonExpression(["'-r /head_controller/joint_trajectory:=", head_command_topic, "'"]),
             '--controller-ros-args',
             '-r /lift_controller/joint_trajectory:='
             '/leader/joystick_controller_right/joint_trajectory',
