@@ -198,6 +198,7 @@ def generate_launch_description():
         parameters=[{
             'depth_topic': LaunchConfiguration('depth_topic'),
             'base_image_topic': LaunchConfiguration('base_image_topic'),
+            'base_image_fallback_topics': ['/camera_right/camera_right/color/image_raw'],
             'overlay_topic': LaunchConfiguration('overlay_topic'),
             'compressed_topic': LaunchConfiguration('compressed_topic'),
             'assist_topic': LaunchConfiguration('assist_topic'),
@@ -210,9 +211,9 @@ def generate_launch_description():
             'stream_stats_name': 'wrist_right',
             'side': 'right',
             'feedback_visual_mode': LaunchConfiguration('feedback_visual_mode'),
-            'subscribe_base_image': LaunchConfiguration('subscribe_base_image'),
+            'subscribe_base_image': 'true',
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
-            'publish_base_compressed': LaunchConfiguration('publish_base_compressed'),
+            'publish_base_compressed': 'true',
             'base_compressed_fps': LaunchConfiguration('base_compressed_fps'),
             'base_compressed_jpeg_quality': LaunchConfiguration('base_compressed_jpeg_quality'),
             'publish_metrics': LaunchConfiguration('publish_metrics'),
@@ -469,8 +470,8 @@ def generate_launch_description():
             default_value='/camera_right/camera_right/depth/image_rect_raw'),
         DeclareLaunchArgument(
             'base_image_topic',
-            default_value='',
-            description='Deprecated and ignored; raw wrist color subscriptions stay disabled.'),
+            default_value='/camera_right/camera_right/color/image_rect_raw',
+            description='Primary raw right wrist color topic relayed for operator display.'),
         DeclareLaunchArgument(
             'overlay_topic', default_value='/teleop/wrist_right/depth_overlay'),
         DeclareLaunchArgument(
@@ -479,11 +480,11 @@ def generate_launch_description():
             'assist_topic', default_value='/teleop/wrist_right/depth_assist/compressed'),
         DeclareLaunchArgument(
             'right_color_compressed_topic',
-            default_value='/camera_right/camera_right/color/image_raw/compressed'),
+            default_value='/teleop/wrist_right/color/compressed'),
         DeclareLaunchArgument(
             'base_compressed_topic',
             default_value='/teleop/wrist_right/color/compressed',
-            description='Deprecated and ignored; use right_color_compressed_topic.'),
+            description='Relayed right wrist raw color as JPEG compressed for operator display.'),
         DeclareLaunchArgument(
             'center_distance_topic', default_value='/teleop/wrist_right/center_distance_m'),
         DeclareLaunchArgument(
@@ -521,11 +522,11 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'subscribe_base_image',
             default_value='false',
-            description='Deprecated and ignored; raw wrist color subscriptions stay disabled.'),
+            description='Left overlay compatibility option; right overlay subscribes to raw color.'),
         DeclareLaunchArgument(
             'publish_base_compressed',
             default_value='false',
-            description='Deprecated and ignored; use RealSense compressed color transport.'),
+            description='Left overlay compatibility option; right overlay publishes the color relay.'),
         DeclareLaunchArgument('base_compressed_fps', default_value='5.0'),
         DeclareLaunchArgument('base_compressed_jpeg_quality', default_value='60'),
         DeclareLaunchArgument('publish_metrics', default_value='true'),

@@ -20,12 +20,13 @@ class WristDepthOverlay(Node):
 
         self.declare_parameter('depth_topic', '/camera_right/camera_right/depth/image_rect_raw')
         self.declare_parameter('base_image_topic', '')
+        self.declare_parameter('base_image_fallback_topics', [''])
         self.declare_parameter('overlay_topic', '/teleop/wrist_right/depth_overlay')
         self.declare_parameter('compressed_topic', '/teleop/wrist_right/depth_overlay/compressed')
         self.declare_parameter('assist_topic', '/teleop/wrist_right/depth_assist/compressed')
         self.declare_parameter(
             'color_compressed_topic',
-            '/camera_right/camera_right/color/image_raw/compressed')
+            '/teleop/wrist_right/color/compressed')
         self.declare_parameter('base_compressed_topic', '/teleop/wrist_right/color/compressed')
         self.declare_parameter('center_distance_topic', '/teleop/wrist_right/center_distance_m')
         self.declare_parameter('metrics_topic', '/teleop/wrist_right/depth_metrics')
@@ -74,8 +75,11 @@ class WristDepthOverlay(Node):
         self.declare_parameter('band_min_area_px', 20.0)
 
         self.depth_topic = self.get_parameter('depth_topic').value
-        self.base_image_topic = self.get_parameter('base_image_topic').value
-        self.base_image_topics = self._unique_strings([self.base_image_topic])
+        self.base_image_topic = str(self.get_parameter('base_image_topic').value).strip()
+        self.base_image_topics = self._unique_strings([
+            self.base_image_topic,
+            *self._string_list(self.get_parameter('base_image_fallback_topics').value),
+        ])
         self.overlay_topic = self.get_parameter('overlay_topic').value
         self.compressed_topic = self.get_parameter('compressed_topic').value
         self.assist_topic = self.get_parameter('assist_topic').value
@@ -98,19 +102,18 @@ class WristDepthOverlay(Node):
             self.feedback_visual_mode = 'assist'
         requested_base_image = self._as_bool(
             self.get_parameter('subscribe_base_image').value)
-        self.subscribe_base_image = False
-        if requested_base_image:
+        self.subscribe_base_image = requested_base_image and bool(self.base_image_topics)
+        if requested_base_image and not self.base_image_topics:
             self.get_logger().warn(
-                'raw wrist color subscription is disabled; use compressed image_transport topics')
+                'raw wrist color subscription requested but no base image topics are configured')
         self.publish_raw_overlay = self._as_bool(
             self.get_parameter('publish_raw_overlay').value)
         requested_base_compressed = self._as_bool(
             self.get_parameter('publish_base_compressed').value)
-        self.publish_base_compressed = False
-        if requested_base_compressed:
+        self.publish_base_compressed = requested_base_compressed
+        if self.publish_base_compressed and not self.subscribe_base_image:
             self.get_logger().warn(
-                'publish_base_compressed is deprecated and ignored; '
-                'use the RealSense compressed color topic directly')
+                'base compressed relay requested but raw wrist color subscription is disabled')
         self.base_compressed_fps = max(
             float(self.get_parameter('base_compressed_fps').value), 0.1)
         self.base_compressed_jpeg_quality = int(np.clip(
@@ -168,6 +171,7 @@ class WristDepthOverlay(Node):
         self.last_warn_time = None
         self.last_perf_publish_time = None
         self.depth_input_times = []
+        self.base_input_times = []
         self.output_times = []
         self.last_process_ms = None
         self.last_jpeg_ms = None
@@ -179,6 +183,13 @@ class WristDepthOverlay(Node):
 
         self.depth_sub = self.create_subscription(
             Image, self.depth_topic, self._depth_callback, qos_profile_sensor_data)
+        self.base_image_subs = []
+        if self.subscribe_base_image:
+            for topic in self.base_image_topics:
+                self.base_image_subs.append(
+                    self.create_subscription(
+                        Image, topic, self._base_image_callback, qos_profile_sensor_data)
+                )
         self.overlay_pub = None
         if self.publish_raw_overlay:
             self.overlay_pub = self.create_publisher(
@@ -209,8 +220,8 @@ class WristDepthOverlay(Node):
             f'base={self.base_image_topics if self.subscribe_base_image else "disabled"} '
             f'-> raw={self.overlay_topic if self.publish_raw_overlay else "disabled"}, '
             f'overlay_compressed={self.compressed_topic}, assist={self.assist_topic}, '
-            f'color_compressed_external={self.color_compressed_topic or "disabled"}, '
-            f'base_compressed_relay=deprecated-disabled, '
+            f'color_compressed_topic={self.color_compressed_topic or "disabled"}, '
+            f'base_compressed_relay={self.base_compressed_topic if self.base_compressed_pub else "disabled"}, '
             f'stats={self.stream_stats_topic or "disabled"} '
             f'view={self.view_preset} rot={self.view_rotate_deg:.0f}deg '
             f'flip_h={self.view_flip_horizontal} flip_v={self.view_flip_vertical} '
@@ -240,6 +251,16 @@ class WristDepthOverlay(Node):
             unique.append(text)
             seen.add(text)
         return unique
+
+    def _string_list(self, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        try:
+            return [str(item) for item in value]
+        except TypeError:
+            return [str(value)]
 
     def _warn_throttled(self, message):
         now = self.get_clock().now()
@@ -276,7 +297,7 @@ class WristDepthOverlay(Node):
             'name': self.stream_stats_name,
             'topic': self.assist_topic,
             'depth_input_hz': self._sample_hz(self.depth_input_times),
-            'base_input_hz': None,
+            'base_input_hz': self._sample_hz(self.base_input_times),
             'output_hz': self._sample_hz(self.output_times),
             'process_ms': self._clean_float(self.last_process_ms),
             'jpeg_ms': self._clean_float(self.last_jpeg_ms),
@@ -290,6 +311,7 @@ class WristDepthOverlay(Node):
         return bool(topic) and self.count_subscribers(topic) > 0
 
     def _base_image_callback(self, msg):
+        self._record_event(self.base_input_times)
         base_image = self._image_to_bgr(msg)
         if base_image is None:
             return

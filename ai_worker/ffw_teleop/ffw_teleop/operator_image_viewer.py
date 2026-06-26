@@ -20,11 +20,11 @@ DEFAULT_STREAMS = [
     'BANDWIDTH|/teleop/bandwidth_monitor/compressed',
     'ZED|/teleop/zed/depth_assist/compressed',
     'R WRIST|/teleop/wrist_right/depth_assist/compressed',
-    'R COLOR|/camera_right/camera_right/color/image_raw/compressed',
+    'R COLOR|/teleop/wrist_right/color/compressed',
 ]
 
 DEFAULT_MISSING_IMAGE_HINTS = [
-    'R COLOR|no right compressed color stream - check D405 USB/profile',
+    'R COLOR|no relayed right color stream - check raw wrist color and relay node',
 ]
 DEFAULT_STREAM_STATS_STREAMS = [
     'R COLOR|wrist_right_color',
