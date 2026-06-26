@@ -12,6 +12,7 @@ from rclpy.qos import DurabilityPolicy
 from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
 
@@ -20,11 +21,11 @@ DEFAULT_STREAMS = [
     'BANDWIDTH|/teleop/bandwidth_monitor/compressed',
     'ZED|/teleop/zed/depth_assist/compressed',
     'R WRIST|/teleop/wrist_right/depth_assist/compressed',
-    'R COLOR|/teleop/wrist_right/color/compressed',
+    'R COLOR|raw:/camera_right/camera_right/color/image_raw',
 ]
 
 DEFAULT_MISSING_IMAGE_HINTS = [
-    'R COLOR|no relayed right color stream - check raw wrist color and relay node',
+    'R COLOR|no raw right color stream - check RealSense color/profile/USB',
 ]
 DEFAULT_STREAM_STATS_STREAMS = [
     'R COLOR|wrist_right_color',
@@ -114,6 +115,7 @@ class OperatorImageViewer(Node):
                 'image': None,
                 'stamp': 0.0,
                 'topic': stream['topic'],
+                'transport': stream.get('transport', 'compressed'),
             }
             for stream in self.streams
         }
@@ -140,11 +142,18 @@ class OperatorImageViewer(Node):
         qos.reliability = ReliabilityPolicy.BEST_EFFORT
         qos.durability = DurabilityPolicy.VOLATILE
         for stream in self.streams:
+            transport = stream.get('transport', 'compressed')
+            msg_type = Image if transport == 'raw' else CompressedImage
+            callback = (
+                self._make_raw_callback(stream['name'])
+                if transport == 'raw'
+                else self._make_compressed_callback(stream['name'])
+            )
             self._image_subscriptions.append(
                 self.create_subscription(
-                    CompressedImage,
+                    msg_type,
                     stream['topic'],
-                    self._make_callback(stream['name']),
+                    callback,
                     qos,
                 )
             )
@@ -251,15 +260,25 @@ class OperatorImageViewer(Node):
                 name, topic = text.split('|', 1)
             else:
                 topic = text
-                name = topic.rsplit('/', 2)[0].rsplit('/', 1)[-1].upper()
+                display_topic = self._strip_transport_prefix(topic.strip())[1]
+                name = display_topic.rsplit('/', 2)[0].rsplit('/', 1)[-1].upper()
             name = name.strip() or topic
             topic = topic.strip()
+            transport, topic = self._strip_transport_prefix(topic)
             if topic:
-                streams.append({'name': name, 'topic': topic})
-        return streams or [
-            {'name': item.split('|', 1)[0], 'topic': item.split('|', 1)[1]}
-            for item in DEFAULT_STREAMS
-        ]
+                streams.append({'name': name, 'topic': topic, 'transport': transport})
+        if streams:
+            return streams
+        return self._parse_streams(DEFAULT_STREAMS)
+
+    def _strip_transport_prefix(self, topic):
+        topic = str(topic or '').strip()
+        lower = topic.lower()
+        if lower.startswith('raw:'):
+            return 'raw', topic[4:].strip()
+        if lower.startswith('compressed:'):
+            return 'compressed', topic.split(':', 1)[1].strip()
+        return 'compressed', topic
 
     def _parse_hints(self, raw_hints):
         hints = {}
@@ -438,7 +457,7 @@ class OperatorImageViewer(Node):
             self.get_logger().error(f'failed to create OpenCV viewer window: {exc}')
             self.gui_available = False
 
-    def _make_callback(self, name):
+    def _make_compressed_callback(self, name):
         def callback(msg):
             data = np.frombuffer(msg.data, dtype=np.uint8)
             image = cv2.imdecode(data, cv2.IMREAD_COLOR)
@@ -451,6 +470,80 @@ class OperatorImageViewer(Node):
             self._publish_stream_stats(name, msg, image)
             self._publish_camera_perf(name, msg, image)
         return callback
+
+    def _make_raw_callback(self, name):
+        def callback(msg):
+            image = self._image_msg_to_bgr(msg)
+            if image is None:
+                self.get_logger().warn(
+                    f'failed to convert raw image for {name}: encoding={msg.encoding}')
+                return
+            image = self._rotate_stream_image(name, image)
+            self.frames[name]['image'] = image
+            self.frames[name]['stamp'] = time.time()
+            self._publish_stream_stats(name, msg, image)
+            self._publish_camera_perf(name, msg, image)
+        return callback
+
+    def _image_msg_to_bgr(self, msg):
+        encoding = str(msg.encoding or '').upper()
+        if msg.step <= 0 or msg.height <= 0 or msg.width <= 0:
+            return None
+
+        channels_by_encoding = {
+            'BGR8': 3,
+            'RGB8': 3,
+            'BGRA8': 4,
+            'RGBA8': 4,
+            'MONO8': 1,
+            '8UC1': 1,
+            'YUYV': 2,
+            'YUY2': 2,
+            'UYVY': 2,
+        }
+        channels = channels_by_encoding.get(encoding)
+        if channels is not None:
+            row_bytes = int(msg.width) * channels
+            if msg.step < row_bytes:
+                return None
+            raw = np.frombuffer(msg.data, dtype=np.uint8)
+            expected = int(msg.step) * int(msg.height)
+            if raw.size < expected:
+                return None
+            rows = raw[:expected].reshape((msg.height, msg.step))
+            image = rows[:, :row_bytes].reshape((msg.height, msg.width, channels))
+            if encoding == 'BGR8':
+                return np.ascontiguousarray(image)
+            if encoding == 'RGB8':
+                return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            if encoding == 'BGRA8':
+                return cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+            if encoding == 'RGBA8':
+                return cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
+            if encoding in ('MONO8', '8UC1'):
+                return cv2.cvtColor(image[:, :, 0], cv2.COLOR_GRAY2BGR)
+            if encoding in ('YUYV', 'YUY2'):
+                return cv2.cvtColor(image, cv2.COLOR_YUV2BGR_YUY2)
+            if encoding == 'UYVY':
+                return cv2.cvtColor(image, cv2.COLOR_YUV2BGR_UYVY)
+
+        if encoding in ('16UC1', 'MONO16'):
+            dtype = np.dtype('>u2' if msg.is_bigendian else '<u2')
+            stride = msg.step // dtype.itemsize
+            if stride < msg.width:
+                return None
+            expected = stride * int(msg.height)
+            raw = np.frombuffer(msg.data, dtype=dtype)
+            if raw.size < expected:
+                return None
+            image16 = raw[:expected].reshape((msg.height, stride))[:, :msg.width]
+            if image16.size == 0:
+                return None
+            max_value = float(np.nanmax(image16))
+            scale = 255.0 / max(max_value, 1.0)
+            image8 = cv2.convertScaleAbs(image16, alpha=scale)
+            return cv2.cvtColor(image8, cv2.COLOR_GRAY2BGR)
+        return None
 
     def _rotate_stream_image(self, name, image):
         angle = float(self.stream_rotate_deg.get(name, 0.0)) % 360.0
@@ -486,7 +579,7 @@ class OperatorImageViewer(Node):
             'stamp_sec': time.time(),
             'name': stats_name,
             'topic': self.frames.get(name, {}).get('topic', ''),
-            'bytes': len(msg.data),
+            'bytes': self._message_byte_count(msg),
             'width': int(width),
             'height': int(height),
             'jpeg_quality': None,
@@ -519,7 +612,7 @@ class OperatorImageViewer(Node):
             'topic': self.frames.get(name, {}).get('topic', ''),
             'rx_hz': self._sample_hz(times),
             'output_hz': self._sample_hz(times),
-            'bytes': len(msg.data),
+            'bytes': self._message_byte_count(msg),
             'width': int(width),
             'height': int(height),
             'subscriber_count': 1,
@@ -528,6 +621,9 @@ class OperatorImageViewer(Node):
         out = String()
         out.data = json.dumps(payload, sort_keys=True)
         self.camera_perf_pub.publish(out)
+
+    def _message_byte_count(self, msg):
+        return len(getattr(msg, 'data', b'') or b'')
 
     def _sample_hz(self, samples):
         if len(samples) < 2:
@@ -736,7 +832,9 @@ class OperatorImageViewer(Node):
         publisher_count = self.count_publishers(topic) if topic else 0
         topic_text = self._short_topic(topic)
         if publisher_count <= 0:
-            return f'no compressed publisher\npubs=0 {topic_text}'
+            transport = stream.get('transport', 'compressed')
+            source = 'raw' if transport == 'raw' else 'compressed'
+            return f'no {source} publisher\npubs=0 {topic_text}'
         hint = self.missing_image_hints.get(name, 'waiting for image')
         return f'{hint}\npubs={publisher_count} {topic_text}'
 

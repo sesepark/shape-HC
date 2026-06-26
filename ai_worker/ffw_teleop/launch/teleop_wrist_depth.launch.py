@@ -211,9 +211,9 @@ def generate_launch_description():
             'stream_stats_name': 'wrist_right',
             'side': 'right',
             'feedback_visual_mode': LaunchConfiguration('feedback_visual_mode'),
-            'subscribe_base_image': 'true',
+            'subscribe_base_image': 'false',
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
-            'publish_base_compressed': 'true',
+            'publish_base_compressed': 'false',
             'base_compressed_fps': LaunchConfiguration('base_compressed_fps'),
             'base_compressed_jpeg_quality': LaunchConfiguration('base_compressed_jpeg_quality'),
             'publish_metrics': LaunchConfiguration('publish_metrics'),
@@ -376,8 +376,7 @@ def generate_launch_description():
             'usb_wrist_right_depth_enabled': LaunchConfiguration('enable_right_depth'),
             'usb_wrist_left_color_enabled': LaunchConfiguration('enable_left_color'),
             'usb_wrist_right_color_enabled': LaunchConfiguration('enable_right_color'),
-            'wrist_right_color_compressed_topic': LaunchConfiguration(
-                'right_color_compressed_topic'),
+            'wrist_right_color_topic': LaunchConfiguration('right_color_raw_topic'),
         }],
     )
 
@@ -471,7 +470,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'base_image_topic',
             default_value='/camera_right/camera_right/color/image_rect_raw',
-            description='Primary raw right wrist color topic relayed for operator display.'),
+            description='Optional raw right wrist color topic; relay is disabled by default.'),
         DeclareLaunchArgument(
             'overlay_topic', default_value='/teleop/wrist_right/depth_overlay'),
         DeclareLaunchArgument(
@@ -480,11 +479,16 @@ def generate_launch_description():
             'assist_topic', default_value='/teleop/wrist_right/depth_assist/compressed'),
         DeclareLaunchArgument(
             'right_color_compressed_topic',
-            default_value='/teleop/wrist_right/color/compressed'),
+            default_value='/teleop/wrist_right/color/compressed',
+            description='Deprecated; OpenCV R COLOR uses right_color_raw_topic directly.'),
+        DeclareLaunchArgument(
+            'right_color_raw_topic',
+            default_value='/camera_right/camera_right/color/image_raw',
+            description='Raw right wrist color topic displayed directly by OpenCV R COLOR.'),
         DeclareLaunchArgument(
             'base_compressed_topic',
             default_value='/teleop/wrist_right/color/compressed',
-            description='Relayed right wrist raw color as JPEG compressed for operator display.'),
+            description='Deprecated; right wrist color relay is disabled by default.'),
         DeclareLaunchArgument(
             'center_distance_topic', default_value='/teleop/wrist_right/center_distance_m'),
         DeclareLaunchArgument(
@@ -522,11 +526,11 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'subscribe_base_image',
             default_value='false',
-            description='Left overlay compatibility option; right overlay subscribes to raw color.'),
+            description='Overlay compatibility option; raw wrist color relay is disabled by default.'),
         DeclareLaunchArgument(
             'publish_base_compressed',
             default_value='false',
-            description='Left overlay compatibility option; right overlay publishes the color relay.'),
+            description='Deprecated color relay option; OpenCV uses raw wrist color directly.'),
         DeclareLaunchArgument('base_compressed_fps', default_value='5.0'),
         DeclareLaunchArgument('base_compressed_jpeg_quality', default_value='60'),
         DeclareLaunchArgument('publish_metrics', default_value='true'),

@@ -15,7 +15,7 @@ STREAM_ROWS = (
     ('wrist_right_color', 'R COLOR'),
 )
 DEFAULT_EXPECTED_TOPICS = {
-    'wrist_right_color': '/teleop/wrist_right/color/compressed',
+    'wrist_right_color': '/camera_right/camera_right/color/image_raw',
 }
 
 
@@ -52,8 +52,9 @@ class TeleopBandwidthMonitor(Node):
         self.declare_parameter('usb_wrist_left_color_enabled', True)
         self.declare_parameter('usb_wrist_right_color_enabled', True)
         self.declare_parameter(
-            'wrist_right_color_compressed_topic',
+            'wrist_right_color_topic',
             DEFAULT_EXPECTED_TOPICS['wrist_right_color'])
+        self.declare_parameter('wrist_right_color_compressed_topic', '')
 
         self.stream_stats_topic = str(
             self.get_parameter('stream_stats_topic').value).strip()
@@ -89,9 +90,14 @@ class TeleopBandwidthMonitor(Node):
         self.last_tx_sample = None
         self.samples = {}
         self.camera_perf = {}
+        wrist_right_color_topic = str(
+            self.get_parameter('wrist_right_color_topic').value).strip()
+        legacy_color_topic = str(
+            self.get_parameter('wrist_right_color_compressed_topic').value).strip()
+        if legacy_color_topic:
+            wrist_right_color_topic = legacy_color_topic
         self.expected_topics = {
-            'wrist_right_color': str(
-                self.get_parameter('wrist_right_color_compressed_topic').value).strip(),
+            'wrist_right_color': wrist_right_color_topic,
         }
 
         self.create_subscription(
