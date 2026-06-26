@@ -1034,9 +1034,22 @@ class ZedDepthAssist(Node):
         t = float(np.clip(t, 0.0, 1.0))
         return tuple(int(round(a + (b - a) * t)) for a, b in zip(start, end))
 
-    def _draw_hand_depth_header(self, image, left, right, compare):
+    def _assist_header_height(self, show_detail=False):
+        return 112 if show_detail else 86
+
+    def _compose_assist_canvas(self, camera_image, header_height):
+        height, width = camera_image.shape[:2]
+        header_height = max(int(header_height), 1)
+        canvas_shape = (height + header_height, width) + camera_image.shape[2:]
+        canvas = np.zeros(canvas_shape, dtype=camera_image.dtype)
+        if canvas.ndim == 3 and canvas.shape[2] >= 3:
+            canvas[:header_height, :] = (16, 18, 20)
+        canvas[header_height:header_height + height, :] = camera_image
+        return canvas
+
+    def _draw_hand_depth_header(self, image, left, right, compare, header_height=86):
         height, width = image.shape[:2]
-        header_height = min(86, height)
+        header_height = min(max(int(header_height), 1), height)
         mid_x = width // 2
         left_depth = left.get('hand_depth_m')
         right_depth = right.get('hand_depth_m')
@@ -1054,13 +1067,14 @@ class ZedDepthAssist(Node):
         cv2.rectangle(image, (0, 0), (width - 1, header_height - 1), (235, 235, 235), 1)
 
     def _make_assist_image(self, metrics, draw, base_image):
-        image = np.ascontiguousarray(base_image.copy())
-        height, width = image.shape[:2]
+        camera_image = np.ascontiguousarray(base_image.copy())
+        height, width = camera_image.shape[:2]
 
         status = metrics.get('status')
         if status != 'ok':
             status_text = draw.get('status_text') or str(status).upper()
-            header_height = min(86, height)
+            header_height = self._assist_header_height()
+            image = self._compose_assist_canvas(camera_image, header_height)
             cv2.rectangle(image, (0, 0), (width - 1, header_height - 1), (16, 18, 20), -1)
             cv2.rectangle(image, (0, 0), (width - 1, header_height - 1), (0, 0, 255), 2)
             self._put_text(image, f'ZED ARM DEPTH: {status_text}', (8, 32), 0.72)
@@ -1083,14 +1097,14 @@ class ZedDepthAssist(Node):
                     if item.get('visible')
                 ]
                 for p0, p1 in zip(visible, visible[1:]):
-                    cv2.line(image, p0, p1, color, 4, cv2.LINE_AA)
+                    cv2.line(camera_image, p0, p1, color, 4, cv2.LINE_AA)
                 for point in visible:
-                    cv2.circle(image, point, 5, color, -1, cv2.LINE_AA)
+                    cv2.circle(camera_image, point, 5, color, -1, cv2.LINE_AA)
                 if projection.get('hand_visible'):
                     hand_pixel = projection['hand_pixel']
-                    cv2.circle(image, hand_pixel, self.hand_roi_radius_px, color, 1, cv2.LINE_AA)
-                    cv2.circle(image, hand_pixel, 9, color, -1, cv2.LINE_AA)
-                    cv2.circle(image, hand_pixel, 13, (255, 255, 255), 1, cv2.LINE_AA)
+                    cv2.circle(camera_image, hand_pixel, self.hand_roi_radius_px, color, 1, cv2.LINE_AA)
+                    cv2.circle(camera_image, hand_pixel, 9, color, -1, cv2.LINE_AA)
+                    cv2.circle(camera_image, hand_pixel, 13, (255, 255, 255), 1, cv2.LINE_AA)
 
             object_draw = draw.get('objects') or {}
             for side, data in object_draw.items():
@@ -1099,15 +1113,15 @@ class ZedDepthAssist(Node):
                     contour = obj.get('contour')
                     if contour is not None:
                         thickness = 3 if index == 0 else 1
-                        cv2.drawContours(image, [contour], -1, color, thickness, cv2.LINE_AA)
+                        cv2.drawContours(camera_image, [contour], -1, color, thickness, cv2.LINE_AA)
                     center = (obj.get('cx_px'), obj.get('cy_px'))
                     if center[0] is not None and center[1] is not None:
-                        cv2.circle(image, center, 5, color, -1, cv2.LINE_AA)
+                        cv2.circle(camera_image, center, 5, color, -1, cv2.LINE_AA)
                         label = 'L' if side == 'left' else 'R'
                         self._put_text(
-                            image,
+                            camera_image,
                             f'{label} {self._format_delta(obj.get("depth_delta_m"))}m',
-                            (center[0] + 8, max(center[1] - 8, 98)),
+                            (center[0] + 8, max(center[1] - 8, 16)),
                             0.46,
                         )
 
@@ -1115,7 +1129,9 @@ class ZedDepthAssist(Node):
         left = hands.get('left') or {}
         right = hands.get('right') or {}
         compare = metrics.get('gripper_depth_compare') or {}
-        self._draw_hand_depth_header(image, left, right, compare)
+        header_height = self._assist_header_height(show_near_hand_objects)
+        image = self._compose_assist_canvas(camera_image, header_height)
+        self._draw_hand_depth_header(image, left, right, compare, header_height)
         if show_near_hand_objects:
             left_obj = left.get('nearest_object') or {}
             right_obj = right.get('nearest_object') or {}
@@ -1125,8 +1141,8 @@ class ZedDepthAssist(Node):
                 f'3D {self._format_depth(left_obj.get("distance_3d_m"))}m   '
                 f'R OBJ-HAND {self._format_delta(right_obj.get("depth_delta_m"))}m '
                 f'3D {self._format_depth(right_obj.get("distance_3d_m"))}m',
-                (8, 61),
-                0.50,
+                (8, max(header_height - 14, 82)),
+                0.44,
             )
         self._draw_ok_overlay(image)
         return image
