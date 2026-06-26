@@ -6,7 +6,7 @@ AI_WORKER_SOURCE_DIR="${AI_WORKER_SOURCE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd -P)
 AI_WORKER_WORKSPACE_DIR="${AI_WORKER_WORKSPACE_DIR:-${SCRIPT_DIR}/workspace}"
 export AI_WORKER_SOURCE_DIR
 export AI_WORKER_WORKSPACE_DIR
-CONTAINER_NAME="ai_worker"
+CONTAINER_NAME="ai_worker_teleop"
 GITHUB_RELEASES_API="https://api.github.com/repos/ROBOTIS-GIT/ai_worker/releases/latest"
 META_PACKAGE_XML="${SCRIPT_DIR}/../ffw/package.xml"
 
@@ -84,7 +84,7 @@ start_container() {
         echo "Warning: DISPLAY environment variable is not set. X11 forwarding will not be available."
     fi
 
-    echo "Starting ai_worker container..."
+    echo "Starting ai_worker_teleop container..."
     # Notify if an update is available (meta package version vs GitHub latest release)
     CURRENT_VER=$(get_current_version)
     LATEST_VER=$(get_latest_version)
