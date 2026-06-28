@@ -211,9 +211,9 @@ def generate_launch_description():
             'stream_stats_name': 'wrist_right',
             'side': 'right',
             'feedback_visual_mode': LaunchConfiguration('feedback_visual_mode'),
-            'subscribe_base_image': 'false',
+            'subscribe_base_image': 'true',
             'publish_raw_overlay': LaunchConfiguration('publish_raw_overlay'),
-            'publish_base_compressed': 'false',
+            'publish_base_compressed': 'true',
             'base_compressed_fps': LaunchConfiguration('base_compressed_fps'),
             'base_compressed_jpeg_quality': LaunchConfiguration('base_compressed_jpeg_quality'),
             'publish_metrics': LaunchConfiguration('publish_metrics'),
@@ -347,6 +347,12 @@ def generate_launch_description():
             'left_depth_metrics_topic': LaunchConfiguration('left_metrics_topic'),
             'status_panel_topic': LaunchConfiguration('status_panel_topic'),
             'status_panel_jpeg_quality': LaunchConfiguration('status_panel_jpeg_quality'),
+            'dxl_current_topic': LaunchConfiguration('dxl_current_topic'),
+            'dxl_current_calibration_s': LaunchConfiguration('dxl_current_calibration_s'),
+            'dxl_current_baseline_floor': LaunchConfiguration('dxl_current_baseline_floor'),
+            'dxl_current_caution_ratio': LaunchConfiguration('dxl_current_caution_ratio'),
+            'dxl_current_warn_ratio': LaunchConfiguration('dxl_current_warn_ratio'),
+            'dxl_current_stale_timeout_s': LaunchConfiguration('dxl_current_stale_timeout_s'),
             'table_reference_enabled': LaunchConfiguration('table_reference_enabled'),
             'table_x_m': LaunchConfiguration('table_x_m'),
             'table_y_m': LaunchConfiguration('table_y_m'),
@@ -377,6 +383,8 @@ def generate_launch_description():
             'usb_wrist_left_color_enabled': LaunchConfiguration('enable_left_color'),
             'usb_wrist_right_color_enabled': LaunchConfiguration('enable_right_color'),
             'wrist_right_color_topic': LaunchConfiguration('right_color_raw_topic'),
+            'wrist_right_color_compressed_topic': LaunchConfiguration(
+                'right_color_compressed_topic'),
         }],
     )
 
@@ -470,7 +478,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'base_image_topic',
             default_value='/camera_right/camera_right/color/image_rect_raw',
-            description='Optional raw right wrist color topic; relay is disabled by default.'),
+            description='Primary raw right wrist color topic relayed for operator display.'),
         DeclareLaunchArgument(
             'overlay_topic', default_value='/teleop/wrist_right/depth_overlay'),
         DeclareLaunchArgument(
@@ -480,7 +488,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'right_color_compressed_topic',
             default_value='/teleop/wrist_right/color/compressed',
-            description='Deprecated; OpenCV R COLOR uses right_color_raw_topic directly.'),
+            description='Relayed right wrist raw color as JPEG compressed for operator display.'),
         DeclareLaunchArgument(
             'right_color_raw_topic',
             default_value='/camera_right/camera_right/color/image_raw',
@@ -488,7 +496,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'base_compressed_topic',
             default_value='/teleop/wrist_right/color/compressed',
-            description='Deprecated; right wrist color relay is disabled by default.'),
+            description='Relayed right wrist raw color as JPEG compressed for operator display.'),
         DeclareLaunchArgument(
             'center_distance_topic', default_value='/teleop/wrist_right/center_distance_m'),
         DeclareLaunchArgument(
@@ -608,6 +616,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'status_panel_topic', default_value='/teleop/operator_status/compressed'),
         DeclareLaunchArgument('status_panel_jpeg_quality', default_value='95'),
+        DeclareLaunchArgument('dxl_current_topic', default_value='/dynamic_joint_states'),
+        DeclareLaunchArgument('dxl_current_calibration_s', default_value='3.0'),
+        DeclareLaunchArgument('dxl_current_baseline_floor', default_value='50.0'),
+        DeclareLaunchArgument('dxl_current_caution_ratio', default_value='1.6'),
+        DeclareLaunchArgument('dxl_current_warn_ratio', default_value='2.2'),
+        DeclareLaunchArgument('dxl_current_stale_timeout_s', default_value='1.0'),
         DeclareLaunchArgument(
             'bandwidth_monitor_topic', default_value='/teleop/bandwidth_monitor'),
         DeclareLaunchArgument(

@@ -32,6 +32,12 @@ def generate_launch_description():
     enable_right_depth = LaunchConfiguration('enable_right_depth')
     base_compressed_fps = LaunchConfiguration('base_compressed_fps')
     base_compressed_jpeg_quality = LaunchConfiguration('base_compressed_jpeg_quality')
+    dxl_current_topic = LaunchConfiguration('dxl_current_topic')
+    dxl_current_calibration_s = LaunchConfiguration('dxl_current_calibration_s')
+    dxl_current_baseline_floor = LaunchConfiguration('dxl_current_baseline_floor')
+    dxl_current_caution_ratio = LaunchConfiguration('dxl_current_caution_ratio')
+    dxl_current_warn_ratio = LaunchConfiguration('dxl_current_warn_ratio')
+    dxl_current_stale_timeout_s = LaunchConfiguration('dxl_current_stale_timeout_s')
 
     robot_teleop = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -63,6 +69,12 @@ def generate_launch_description():
             'right_wrist_start_delay_s': right_wrist_start_delay_s,
             'base_compressed_fps': base_compressed_fps,
             'base_compressed_jpeg_quality': base_compressed_jpeg_quality,
+            'dxl_current_topic': dxl_current_topic,
+            'dxl_current_calibration_s': dxl_current_calibration_s,
+            'dxl_current_baseline_floor': dxl_current_baseline_floor,
+            'dxl_current_caution_ratio': dxl_current_caution_ratio,
+            'dxl_current_warn_ratio': dxl_current_warn_ratio,
+            'dxl_current_stale_timeout_s': dxl_current_stale_timeout_s,
         }.items(),
     )
 
@@ -88,5 +100,11 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_right_depth', default_value='true'),
         DeclareLaunchArgument('base_compressed_fps', default_value='5.0'),
         DeclareLaunchArgument('base_compressed_jpeg_quality', default_value='60'),
+        DeclareLaunchArgument('dxl_current_topic', default_value='/dynamic_joint_states'),
+        DeclareLaunchArgument('dxl_current_calibration_s', default_value='3.0'),
+        DeclareLaunchArgument('dxl_current_baseline_floor', default_value='50.0'),
+        DeclareLaunchArgument('dxl_current_caution_ratio', default_value='1.6'),
+        DeclareLaunchArgument('dxl_current_warn_ratio', default_value='2.2'),
+        DeclareLaunchArgument('dxl_current_stale_timeout_s', default_value='1.0'),
         robot_teleop,
     ])
