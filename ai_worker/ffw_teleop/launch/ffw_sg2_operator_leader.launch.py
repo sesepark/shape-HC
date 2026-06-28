@@ -62,6 +62,7 @@ def generate_launch_description():
     start_operator_layout = LaunchConfiguration('start_operator_layout')
     start_cmd_vel_mux = LaunchConfiguration('start_cmd_vel_mux')
     start_head_trajectory_mux = LaunchConfiguration('start_head_trajectory_mux')
+    start_leader_tact_ok_bridge = LaunchConfiguration('start_leader_tact_ok_bridge')
     joystick_cmd_vel_topic = LaunchConfiguration('joystick_cmd_vel_topic')
     keyboard_cmd_vel_topic = LaunchConfiguration('keyboard_cmd_vel_topic')
     keyboard_enabled_topic = LaunchConfiguration('keyboard_enabled_topic')
@@ -86,6 +87,7 @@ def generate_launch_description():
     mouse_max_hold_s = LaunchConfiguration('mouse_max_hold_s')
     keyboard_stale_timeout_s = LaunchConfiguration('keyboard_stale_timeout_s')
     joystick_stale_timeout_s = LaunchConfiguration('joystick_stale_timeout_s')
+    tact_trigger_topic = LaunchConfiguration('tact_trigger_topic')
     operator_ok_topic = LaunchConfiguration('operator_ok_topic')
     ok_overlay_duration_s = LaunchConfiguration('ok_overlay_duration_s')
     operator_image_viewer_layout_store_path = LaunchConfiguration(
@@ -241,6 +243,19 @@ def generate_launch_description():
         condition=IfCondition(start_head_trajectory_mux),
     )
 
+    leader_tact_ok_bridge = Node(
+        package='ffw_teleop',
+        executable='leader_tact_ok_bridge',
+        name='leader_tact_ok_bridge',
+        output='screen',
+        parameters=[{
+            'tact_trigger_topic': tact_trigger_topic,
+            'operator_ok_topic': operator_ok_topic,
+            'ok_overlay_duration_s': ok_overlay_duration_s,
+        }],
+        condition=IfCondition(start_leader_tact_ok_bridge),
+    )
+
     operator_image_viewer = Node(
         package='ffw_teleop',
         executable='operator_image_viewer',
@@ -337,6 +352,7 @@ def generate_launch_description():
             'start_cmd_vel_mux',
             default_value='true'),
         DeclareLaunchArgument('start_head_trajectory_mux', default_value='true'),
+        DeclareLaunchArgument('start_leader_tact_ok_bridge', default_value='true'),
         DeclareLaunchArgument('joystick_cmd_vel_topic', default_value='/teleop/joystick_cmd_vel'),
         DeclareLaunchArgument('keyboard_cmd_vel_topic', default_value='/teleop/keyboard_cmd_vel'),
         DeclareLaunchArgument(
@@ -364,6 +380,8 @@ def generate_launch_description():
         DeclareLaunchArgument('mouse_max_hold_s', default_value='8.0'),
         DeclareLaunchArgument('keyboard_stale_timeout_s', default_value='0.20'),
         DeclareLaunchArgument('joystick_stale_timeout_s', default_value='0.30'),
+        DeclareLaunchArgument(
+            'tact_trigger_topic', default_value='/leader/joystick_controller/tact_trigger'),
         DeclareLaunchArgument('operator_ok_topic', default_value='/teleop/operator_ok'),
         DeclareLaunchArgument('ok_overlay_duration_s', default_value='3.0'),
         DeclareLaunchArgument(
@@ -424,6 +442,7 @@ def generate_launch_description():
         OpaqueFunction(function=make_rviz_node),
         TimerAction(period=1.0, actions=[cmd_vel_mux]),
         TimerAction(period=1.2, actions=[head_trajectory_mux]),
+        TimerAction(period=1.4, actions=[leader_tact_ok_bridge]),
         TimerAction(period=1.5, actions=[mission_control]),
         TimerAction(period=2.5, actions=[operator_image_viewer]),
         TimerAction(period=3.0, actions=[operator_drive_panel]),

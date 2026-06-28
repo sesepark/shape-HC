@@ -20,12 +20,19 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 
 
 def generate_launch_description():
     bringup_launch_dir = os.path.join(get_package_share_directory('ffw_bringup'), 'launch')
+    leader_controller_config_arg = DeclareLaunchArgument(
+        'leader_controller_config',
+        default_value='ffw_lg2_leader_ai_hardware_controller.yaml',
+        description='Controller YAML file for the LG2 Leader.',
+    )
+    leader_controller_config = LaunchConfiguration('leader_controller_config')
 
     follower = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(bringup_launch_dir,
@@ -34,10 +41,12 @@ def generate_launch_description():
     )
     leader = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(bringup_launch_dir,
-                                                   'ffw_lg2_leader_ai.launch.py'))
+                                                   'ffw_lg2_leader_ai.launch.py')),
+        launch_arguments={'leader_controller_config': leader_controller_config}.items()
     )
 
     return LaunchDescription([
+        leader_controller_config_arg,
         follower,
         TimerAction(period=30.0, actions=[leader]),
     ])

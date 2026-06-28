@@ -44,6 +44,7 @@ setup(
             'teleop_bandwidth_monitor = ffw_teleop.teleop_bandwidth_monitor:main',
             'teleop_cmd_vel_mux = ffw_teleop.teleop_cmd_vel_mux:main',
             'teleop_head_trajectory_mux = ffw_teleop.teleop_head_trajectory_mux:main',
+            'leader_tact_ok_bridge = ffw_teleop.leader_tact_ok_bridge:main',
             'mission_mode_manager = ffw_teleop.mission_mode_manager:main',
             'operator_layout_manager = ffw_teleop.operator_layout_manager:main',
             'operator_image_viewer = ffw_teleop.operator_image_viewer:main',
