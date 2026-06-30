@@ -198,7 +198,7 @@ def generate_launch_description():
         parameters=[{
             'depth_topic': LaunchConfiguration('depth_topic'),
             'base_image_topic': LaunchConfiguration('base_image_topic'),
-            'base_image_fallback_topics': ['/camera_right/camera_right/color/image_raw'],
+            'base_image_fallback_topics': ['/camera_right/camera_right/color/image_rect_raw'],
             'overlay_topic': LaunchConfiguration('overlay_topic'),
             'compressed_topic': LaunchConfiguration('compressed_topic'),
             'assist_topic': LaunchConfiguration('assist_topic'),
@@ -491,7 +491,7 @@ def generate_launch_description():
             description='Relayed right wrist raw color as JPEG compressed for operator display.'),
         DeclareLaunchArgument(
             'right_color_raw_topic',
-            default_value='/camera_right/camera_right/color/image_raw',
+            default_value='/camera_right/camera_right/color/image_rect_raw',
             description='Raw right wrist color topic displayed directly by OpenCV R COLOR.'),
         DeclareLaunchArgument(
             'base_compressed_topic',
