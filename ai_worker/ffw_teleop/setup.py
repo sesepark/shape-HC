@@ -46,6 +46,7 @@ setup(
             'teleop_head_trajectory_mux = ffw_teleop.teleop_head_trajectory_mux:main',
             'leader_tact_ok_bridge = ffw_teleop.leader_tact_ok_bridge:main',
             'mission_mode_manager = ffw_teleop.mission_mode_manager:main',
+            'teleop_mission_b_grasp_guard = ffw_teleop.mission_b_grasp_guard:main',
             'operator_layout_manager = ffw_teleop.operator_layout_manager:main',
             'operator_image_viewer = ffw_teleop.operator_image_viewer:main',
             'operator_drive_panel = ffw_teleop.operator_drive_panel:main',

@@ -38,6 +38,15 @@ def generate_launch_description():
     dxl_current_caution_ratio = LaunchConfiguration('dxl_current_caution_ratio')
     dxl_current_warn_ratio = LaunchConfiguration('dxl_current_warn_ratio')
     dxl_current_stale_timeout_s = LaunchConfiguration('dxl_current_stale_timeout_s')
+    start_mission_b_grasp_guard = LaunchConfiguration('start_mission_b_grasp_guard')
+    mission_b_grasp_guard_threshold_raw = LaunchConfiguration(
+        'mission_b_grasp_guard_threshold_raw')
+    mission_b_grasp_guard_release_raw = LaunchConfiguration(
+        'mission_b_grasp_guard_release_raw')
+    mission_b_grasp_guard_enabled_topic = LaunchConfiguration(
+        'mission_b_grasp_guard_enabled_topic')
+    mission_b_grasp_guard_status_topic = LaunchConfiguration(
+        'mission_b_grasp_guard_status_topic')
 
     robot_teleop = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -75,6 +84,11 @@ def generate_launch_description():
             'dxl_current_caution_ratio': dxl_current_caution_ratio,
             'dxl_current_warn_ratio': dxl_current_warn_ratio,
             'dxl_current_stale_timeout_s': dxl_current_stale_timeout_s,
+            'start_mission_b_grasp_guard': start_mission_b_grasp_guard,
+            'mission_b_grasp_guard_threshold_raw': mission_b_grasp_guard_threshold_raw,
+            'mission_b_grasp_guard_release_raw': mission_b_grasp_guard_release_raw,
+            'mission_b_grasp_guard_enabled_topic': mission_b_grasp_guard_enabled_topic,
+            'mission_b_grasp_guard_status_topic': mission_b_grasp_guard_status_topic,
         }.items(),
     )
 
@@ -106,5 +120,14 @@ def generate_launch_description():
         DeclareLaunchArgument('dxl_current_caution_ratio', default_value='1.6'),
         DeclareLaunchArgument('dxl_current_warn_ratio', default_value='2.2'),
         DeclareLaunchArgument('dxl_current_stale_timeout_s', default_value='1.0'),
+        DeclareLaunchArgument('start_mission_b_grasp_guard', default_value='false'),
+        DeclareLaunchArgument('mission_b_grasp_guard_threshold_raw', default_value='1950'),
+        DeclareLaunchArgument('mission_b_grasp_guard_release_raw', default_value='1700'),
+        DeclareLaunchArgument(
+            'mission_b_grasp_guard_enabled_topic',
+            default_value='/teleop/mission_b_grasp_guard/enabled'),
+        DeclareLaunchArgument(
+            'mission_b_grasp_guard_status_topic',
+            default_value='/teleop/mission_b_grasp_guard/status'),
         robot_teleop,
     ])

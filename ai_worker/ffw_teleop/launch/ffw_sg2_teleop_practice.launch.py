@@ -42,6 +42,15 @@ def generate_launch_description():
     launch_lidar = LaunchConfiguration('launch_lidar')
     start_feedback = LaunchConfiguration('start_feedback')
     start_leader = LaunchConfiguration('start_leader')
+    start_mission_b_grasp_guard = LaunchConfiguration('start_mission_b_grasp_guard')
+    mission_b_grasp_guard_threshold_raw = LaunchConfiguration(
+        'mission_b_grasp_guard_threshold_raw')
+    mission_b_grasp_guard_release_raw = LaunchConfiguration(
+        'mission_b_grasp_guard_release_raw')
+    mission_b_grasp_guard_enabled_topic = LaunchConfiguration(
+        'mission_b_grasp_guard_enabled_topic')
+    mission_b_grasp_guard_status_topic = LaunchConfiguration(
+        'mission_b_grasp_guard_status_topic')
 
     follower = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -55,6 +64,11 @@ def generate_launch_description():
             'launch_lidar': launch_lidar,
             'init_position': init_position,
             'start_rviz': 'false',
+            'start_mission_b_grasp_guard': start_mission_b_grasp_guard,
+            'mission_b_grasp_guard_threshold_raw': mission_b_grasp_guard_threshold_raw,
+            'mission_b_grasp_guard_release_raw': mission_b_grasp_guard_release_raw,
+            'mission_b_grasp_guard_enabled_topic': mission_b_grasp_guard_enabled_topic,
+            'mission_b_grasp_guard_status_topic': mission_b_grasp_guard_status_topic,
         }.items(),
     )
 
@@ -184,6 +198,15 @@ def generate_launch_description():
         DeclareLaunchArgument('dxl_current_caution_ratio', default_value='1.6'),
         DeclareLaunchArgument('dxl_current_warn_ratio', default_value='2.2'),
         DeclareLaunchArgument('dxl_current_stale_timeout_s', default_value='1.0'),
+        DeclareLaunchArgument('start_mission_b_grasp_guard', default_value='false'),
+        DeclareLaunchArgument('mission_b_grasp_guard_threshold_raw', default_value='1950'),
+        DeclareLaunchArgument('mission_b_grasp_guard_release_raw', default_value='1700'),
+        DeclareLaunchArgument(
+            'mission_b_grasp_guard_enabled_topic',
+            default_value='/teleop/mission_b_grasp_guard/enabled'),
+        DeclareLaunchArgument(
+            'mission_b_grasp_guard_status_topic',
+            default_value='/teleop/mission_b_grasp_guard/status'),
         follower,
         TimerAction(period=25.0, actions=[feedback]),
         TimerAction(period=30.0, actions=[leader]),

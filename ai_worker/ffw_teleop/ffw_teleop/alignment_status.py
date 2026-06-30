@@ -23,12 +23,36 @@ DXL_CURRENT_JOINTS = [
     ('right', 'J1', 'dxl1'),
     ('right', 'J2', 'dxl2'),
     ('right', 'J3', 'dxl3'),
+    ('right', 'J4', 'dxl4'),
     ('left', 'J1', 'dxl31'),
     ('left', 'J2', 'dxl32'),
     ('left', 'J3', 'dxl33'),
+    ('left', 'J4', 'dxl34'),
 ]
 DXL_CURRENT_NAMES = {name for _, _, name in DXL_CURRENT_JOINTS}
 DXL_CURRENT_INTERFACE = 'Present Current'
+YM080_CURRENT_SCALE = 0.07692307692
+YM070_CURRENT_SCALE = 0.04
+DXL_CURRENT_RAW_SCALE = {
+    'dxl1': YM080_CURRENT_SCALE,
+    'dxl2': YM080_CURRENT_SCALE,
+    'dxl3': YM080_CURRENT_SCALE,
+    'dxl4': YM070_CURRENT_SCALE,
+    'dxl31': YM080_CURRENT_SCALE,
+    'dxl32': YM080_CURRENT_SCALE,
+    'dxl33': YM080_CURRENT_SCALE,
+    'dxl34': YM070_CURRENT_SCALE,
+}
+DXL_CURRENT_MAX_RAW = {
+    'dxl1': 2240,
+    'dxl2': 2240,
+    'dxl3': 2240,
+    'dxl4': 2080,
+    'dxl31': 2240,
+    'dxl32': 2240,
+    'dxl33': 2240,
+    'dxl34': 2080,
+}
 
 
 class AlignmentStatus(Node):
@@ -285,7 +309,8 @@ class AlignmentStatus(Node):
                 if cleaned_value is None:
                     continue
                 if interface_name == DXL_CURRENT_INTERFACE:
-                    entry['current_raw'] = cleaned_value
+                    entry['current_raw'] = self._dxl_current_to_raw(
+                        joint_name, cleaned_value)
                 elif interface_name == 'Error Code':
                     entry['error_code'] = cleaned_value
                 elif interface_name == 'Hardware Error Status':
@@ -303,8 +328,6 @@ class AlignmentStatus(Node):
                 current = entry.get('current_raw')
                 if current is not None:
                     self.dxl_current_samples[joint_name].append(abs(float(current)))
-        elif len(self.dxl_current_baseline) < len(DXL_CURRENT_NAMES):
-            self._finalize_dxl_current_baseline()
 
     def _publish_status(self):
         right = self._arm_status('right')
@@ -495,12 +518,6 @@ class AlignmentStatus(Node):
         muted_color = (203, 211, 218)
         state = (snapshot or {}).get('state', 'no_data')
         title = 'DXL LOAD'
-        if state == 'calibrating':
-            elapsed = float((snapshot or {}).get('calibration_elapsed_s') or 0.0)
-            total = max(self.dxl_current_calibration_s, 0.1)
-            text = f'{title}: CALIBRATING {elapsed:.1f}/{total:.1f}s'
-            self._put_panel_text(image, text, p(16, 256), 0.48 * scale, muted_color, line(1))
-            return
         if state == 'no_data':
             self._put_panel_text(
                 image, f'{title}: NO DATA', p(16, 256),
@@ -533,22 +550,22 @@ class AlignmentStatus(Node):
             entry = joints.get(joint_name) or {}
             text = self._format_dxl_current_entry(joint_label, entry)
             color = self._dxl_level_color(entry.get('level'))
-            x = x_base + index * 190
+            x = x_base + index * 148
             self._put_panel_text(
                 image, text, p(x, origin[1] / scale),
-                0.43 * scale, color, line(1))
+                0.37 * scale, color, line(1))
             self._draw_dxl_current_bar(
                 image, entry, p(x, origin[1] / scale + 10), scale)
 
     def _draw_dxl_current_bar(self, image, entry, origin, scale):
-        width = int(round(128 * scale))
-        height = max(int(round(7 * scale)), 2)
+        width = int(round(106 * scale))
+        height = max(int(round(14 * scale)), 4)
         x, y = origin
         cv2.rectangle(image, (x, y), (x + width, y + height), (72, 76, 82), -1)
         ratio = entry.get('load_ratio')
         if ratio is None:
             return
-        fill_ratio = min(max(float(ratio) / max(self.dxl_current_warn_ratio, 0.1), 0.0), 1.0)
+        fill_ratio = min(max(float(ratio), 0.0), 1.0)
         fill_width = int(round(width * fill_ratio))
         if fill_width <= 0:
             return
@@ -596,12 +613,13 @@ class AlignmentStatus(Node):
 
     def _format_dxl_current_entry(self, joint_label, entry):
         current = self._format_dxl_current_value(entry.get('current_raw'))
+        max_raw = self._format_dxl_current_value(entry.get('max_raw'))
         if entry.get('fault'):
-            return f'{joint_label} FAULT/{current}'
+            return f'{joint_label} F {current}/{max_raw}'
         ratio = entry.get('load_ratio')
         if ratio is None:
-            return f'{joint_label} --/{current}'
-        return f'{joint_label} {float(ratio):.1f}x/{current}'
+            return f'{joint_label} --/{max_raw}'
+        return f'{joint_label} {current}/{max_raw}'
 
     def _format_dxl_current_value(self, value):
         if value is None:
@@ -618,6 +636,8 @@ class AlignmentStatus(Node):
             return (48, 64, 255)
         if level == 'orange':
             return (0, 165, 255)
+        if level == 'yellow':
+            return (0, 220, 255)
         if level == 'green':
             return (84, 214, 127)
         return (203, 211, 218)
@@ -739,20 +759,6 @@ class AlignmentStatus(Node):
                 'stale_age_s': self._clean_float(age_s),
             }
 
-        if self._dxl_current_calibrating(now):
-            elapsed_s = 0.0
-            if self.dxl_current_calibration_start is not None:
-                elapsed_s = (now - self.dxl_current_calibration_start).nanoseconds / 1e9
-            return {
-                'state': 'calibrating',
-                'topic': self.dxl_current_topic,
-                'calibration_elapsed_s': self._clean_float(elapsed_s),
-                'calibration_target_s': self._clean_float(self.dxl_current_calibration_s),
-            }
-
-        if len(self.dxl_current_baseline) < len(DXL_CURRENT_NAMES):
-            self._finalize_dxl_current_baseline()
-
         joints = {}
         worst_level = 'green'
         for side, label, joint_name in DXL_CURRENT_JOINTS:
@@ -761,17 +767,19 @@ class AlignmentStatus(Node):
             error_code = self._nonzero_or_none(entry.get('error_code'))
             hardware_status = self._nonzero_or_none(entry.get('hardware_error_status'))
             fault = bool(error_code is not None or hardware_status is not None)
-            baseline = max(
-                float(self.dxl_current_baseline.get(joint_name, self.dxl_current_baseline_floor)),
-                self.dxl_current_baseline_floor)
-            ratio = None if current is None else abs(float(current)) / baseline
+            max_raw = DXL_CURRENT_MAX_RAW.get(joint_name)
+            ratio = (
+                None
+                if current is None or not max_raw
+                else abs(float(current)) / float(max_raw)
+            )
             level = self._dxl_current_level(ratio, fault)
             worst_level = self._max_dxl_level(worst_level, level)
             joints[joint_name] = {
                 'side': side,
                 'label': label,
                 'current_raw': self._clean_float(current) if current is not None else None,
-                'baseline_raw': self._clean_float(baseline),
+                'max_raw': self._clean_float(max_raw) if max_raw is not None else None,
                 'load_ratio': self._clean_float(ratio) if ratio is not None else None,
                 'level': level,
                 'fault': fault,
@@ -782,9 +790,6 @@ class AlignmentStatus(Node):
             'state': 'ok',
             'topic': self.dxl_current_topic,
             'age_s': self._clean_float(age_s),
-            'baseline_floor': self._clean_float(self.dxl_current_baseline_floor),
-            'caution_ratio': self._clean_float(self.dxl_current_caution_ratio),
-            'warn_ratio': self._clean_float(self.dxl_current_warn_ratio),
             'worst_level': worst_level,
             'joints': joints,
         }
@@ -821,21 +826,30 @@ class AlignmentStatus(Node):
             return 'fault'
         if ratio is None:
             return 'unknown'
-        if ratio >= self.dxl_current_warn_ratio:
+        if ratio >= 0.85:
             return 'red'
-        if ratio >= self.dxl_current_caution_ratio:
+        if ratio >= 0.66:
             return 'orange'
+        if ratio >= 0.33:
+            return 'yellow'
         return 'green'
 
     def _max_dxl_level(self, current, candidate):
         priority = {
             'unknown': 0,
             'green': 1,
-            'orange': 2,
-            'red': 3,
-            'fault': 4,
+            'yellow': 2,
+            'orange': 3,
+            'red': 4,
+            'fault': 5,
         }
         return candidate if priority.get(candidate, 0) > priority.get(current, 0) else current
+
+    def _dxl_current_to_raw(self, joint_name, value):
+        scale = DXL_CURRENT_RAW_SCALE.get(joint_name)
+        if not scale:
+            return self._clean_float(value)
+        return int(round(float(value) / scale))
 
     def _nonzero_or_none(self, value):
         if value is None:

@@ -69,6 +69,26 @@ def generate_launch_description():
             'head_command_topic',
             default_value='/teleop/head_cmd',
             description='Final muxed head trajectory topic for the follower head controller.'),
+        DeclareLaunchArgument(
+            'start_mission_b_grasp_guard',
+            default_value='false',
+            description='Route arm trajectories through the Mission B grasp current guard.'),
+        DeclareLaunchArgument(
+            'mission_b_grasp_guard_threshold_raw',
+            default_value='1950',
+            description='Raw-equivalent DXL current threshold for Mission B grasp guard.'),
+        DeclareLaunchArgument(
+            'mission_b_grasp_guard_release_raw',
+            default_value='1700',
+            description='Raw-equivalent DXL current release threshold for Mission B grasp guard.'),
+        DeclareLaunchArgument(
+            'mission_b_grasp_guard_enabled_topic',
+            default_value='/teleop/mission_b_grasp_guard/enabled',
+            description='Mission B grasp guard runtime enable topic.'),
+        DeclareLaunchArgument(
+            'mission_b_grasp_guard_status_topic',
+            default_value='/teleop/mission_b_grasp_guard/status',
+            description='Mission B grasp guard JSON status topic.'),
     ]
 
     start_rviz = LaunchConfiguration('start_rviz')
@@ -84,6 +104,15 @@ def generate_launch_description():
     init_position_file = LaunchConfiguration('init_position_file')
     ros2_control_type = LaunchConfiguration('ros2_control_type')
     head_command_topic = LaunchConfiguration('head_command_topic')
+    start_mission_b_grasp_guard = LaunchConfiguration('start_mission_b_grasp_guard')
+    mission_b_grasp_guard_threshold_raw = LaunchConfiguration(
+        'mission_b_grasp_guard_threshold_raw')
+    mission_b_grasp_guard_release_raw = LaunchConfiguration(
+        'mission_b_grasp_guard_release_raw')
+    mission_b_grasp_guard_enabled_topic = LaunchConfiguration(
+        'mission_b_grasp_guard_enabled_topic')
+    mission_b_grasp_guard_status_topic = LaunchConfiguration(
+        'mission_b_grasp_guard_status_topic')
 
     robot_description_content = Command([
         PathJoinSubstitution([FindExecutable(name='xacro')]),
@@ -170,6 +199,48 @@ def generate_launch_description():
             'ffw_robot_manager'
         ],
         parameters=[robot_description],
+        condition=UnlessCondition(start_mission_b_grasp_guard),
+    )
+
+    robot_controller_spawner_guarded = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=[
+            '--controller-ros-args',
+            '-r /arm_l_controller/joint_trajectory:='
+            '/teleop/mission_b_grasp_guard/left/joint_trajectory',
+            '--controller-ros-args',
+            '-r /arm_r_controller/joint_trajectory:='
+            '/teleop/mission_b_grasp_guard/right/joint_trajectory',
+            '--controller-ros-args',
+            PythonExpression(["'-r /head_controller/joint_trajectory:=", head_command_topic, "'"]),
+            '--controller-ros-args',
+            '-r /lift_controller/joint_trajectory:='
+            '/leader/joystick_controller_right/joint_trajectory',
+            'arm_l_controller',
+            'arm_r_controller',
+            'head_controller',
+            'lift_controller',
+            'ffw_robot_manager'
+        ],
+        parameters=[robot_description],
+        condition=IfCondition(start_mission_b_grasp_guard),
+    )
+
+    mission_b_grasp_guard_node = Node(
+        package='ffw_teleop',
+        executable='teleop_mission_b_grasp_guard',
+        name='teleop_mission_b_grasp_guard',
+        output='screen',
+        parameters=[{
+            'threshold_raw': mission_b_grasp_guard_threshold_raw,
+            'release_raw': mission_b_grasp_guard_release_raw,
+            'enabled_topic': mission_b_grasp_guard_enabled_topic,
+            'status_topic': mission_b_grasp_guard_status_topic,
+            'left_output_topic': '/teleop/mission_b_grasp_guard/left/joint_trajectory',
+            'right_output_topic': '/teleop/mission_b_grasp_guard/right/joint_trajectory',
+        }],
+        condition=IfCondition(start_mission_b_grasp_guard),
     )
 
     # Separate spawner for swerve_steering_initial_position_controller
@@ -279,6 +350,20 @@ def generate_launch_description():
         condition=IfCondition(init_position)
     )
 
+    init_position_event_handler_guarded = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=robot_controller_spawner_guarded,
+            on_exit=[
+                joint_trajectory_executor_left,
+                joint_trajectory_executor_right,
+                joint_trajectory_executor_head,
+                joint_trajectory_executor_lift,
+                joint_trajectory_executor_swerve_steering
+            ]
+        ),
+        condition=IfCondition(init_position)
+    )
+
     # Event handler to unspawn swerve_steering_initial_position_controller and
     # spawn swerve_drive_controller
     # when joint_trajectory_executor_swerve_steering is done
@@ -361,10 +446,13 @@ def generate_launch_description():
             robot_state_pub_node,
             joint_state_broadcaster_spawner,
             delay_rviz_after_joint_state_broadcaster_spawner,
+            mission_b_grasp_guard_node,
             robot_controller_spawner,
+            robot_controller_spawner_guarded,
             swerve_steering_initial_position_spawner,
             swerve_drive_spawner_direct,
             init_position_event_handler,
+            init_position_event_handler_guarded,
             swerve_controller_switch_event_handler,
             camera_timer_20s,
             camera_timer_10s,

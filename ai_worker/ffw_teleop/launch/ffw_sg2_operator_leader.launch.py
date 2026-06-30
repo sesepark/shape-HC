@@ -71,6 +71,10 @@ def generate_launch_description():
     head_enabled_topic = LaunchConfiguration('head_enabled_topic')
     head_mux_output_topic = LaunchConfiguration('head_mux_output_topic')
     head_mux_status_topic = LaunchConfiguration('head_mux_status_topic')
+    mission_b_grasp_guard_enabled_topic = LaunchConfiguration(
+        'mission_b_grasp_guard_enabled_topic')
+    mission_b_grasp_guard_status_topic = LaunchConfiguration(
+        'mission_b_grasp_guard_status_topic')
     head_pan_step_deg = LaunchConfiguration('head_pan_step_deg')
     head_tilt_step_deg = LaunchConfiguration('head_tilt_step_deg')
     mission_keyboard_drive_enabled = LaunchConfiguration('mission_keyboard_drive_enabled')
@@ -297,6 +301,8 @@ def generate_launch_description():
             'monitor_head_cmd_topic': monitor_head_cmd_topic,
             'head_enabled_topic': head_enabled_topic,
             'head_mux_status_topic': head_mux_status_topic,
+            'mission_b_grasp_guard_enabled_topic': mission_b_grasp_guard_enabled_topic,
+            'mission_b_grasp_guard_status_topic': mission_b_grasp_guard_status_topic,
             'joint_state_topic': '/joint_states',
             'head_pan_step_deg': head_pan_step_deg,
             'head_tilt_step_deg': head_tilt_step_deg,
@@ -364,6 +370,12 @@ def generate_launch_description():
             'head_mux_output_topic',
             default_value='/teleop/head_cmd'),
         DeclareLaunchArgument('head_mux_status_topic', default_value='/teleop/head_mux/status'),
+        DeclareLaunchArgument(
+            'mission_b_grasp_guard_enabled_topic',
+            default_value='/teleop/mission_b_grasp_guard/enabled'),
+        DeclareLaunchArgument(
+            'mission_b_grasp_guard_status_topic',
+            default_value='/teleop/mission_b_grasp_guard/status'),
         DeclareLaunchArgument('head_pan_step_deg', default_value='3.0'),
         DeclareLaunchArgument('head_tilt_step_deg', default_value='3.0'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),

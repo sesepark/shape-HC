@@ -67,6 +67,12 @@ class OperatorDrivePanel(Node):
         self.declare_parameter('monitor_head_cmd_topic', '/teleop/monitor_head_cmd')
         self.declare_parameter('head_enabled_topic', '/teleop/head_drive/enabled')
         self.declare_parameter('head_mux_status_topic', '/teleop/head_mux/status')
+        self.declare_parameter(
+            'mission_b_grasp_guard_enabled_topic',
+            '/teleop/mission_b_grasp_guard/enabled')
+        self.declare_parameter(
+            'mission_b_grasp_guard_status_topic',
+            '/teleop/mission_b_grasp_guard/status')
         self.declare_parameter('joint_state_topic', '/joint_states')
         self.declare_parameter('head_pan_joint', 'head_joint1')
         self.declare_parameter('head_tilt_joint', 'head_joint2')
@@ -110,6 +116,10 @@ class OperatorDrivePanel(Node):
             self.get_parameter('head_enabled_topic').value).strip()
         self.head_mux_status_topic = str(
             self.get_parameter('head_mux_status_topic').value).strip()
+        self.mission_b_grasp_guard_enabled_topic = str(
+            self.get_parameter('mission_b_grasp_guard_enabled_topic').value).strip()
+        self.mission_b_grasp_guard_status_topic = str(
+            self.get_parameter('mission_b_grasp_guard_status_topic').value).strip()
         self.joint_state_topic = str(self.get_parameter('joint_state_topic').value).strip()
         self.head_pan_joint = str(self.get_parameter('head_pan_joint').value).strip()
         self.head_tilt_joint = str(self.get_parameter('head_tilt_joint').value).strip()
@@ -152,6 +162,7 @@ class OperatorDrivePanel(Node):
 
         self.drive_enabled = False
         self.head_enabled = False
+        self.mission_b_grasp_guard_enabled = False
         self.focus_active = False
         self.pressed_actions = set()
         self.release_jobs = {}
@@ -166,6 +177,8 @@ class OperatorDrivePanel(Node):
         self.last_mux_status_time_s = 0.0
         self.last_head_mux_status = {}
         self.last_head_mux_status_time_s = 0.0
+        self.last_mission_b_grasp_guard_status = {}
+        self.last_mission_b_grasp_guard_status_time_s = 0.0
         self.last_layout_status = 'Layout: ready'
         self.latest_head_position = {}
         self.latest_joint_state_time_s = 0.0
@@ -188,6 +201,10 @@ class OperatorDrivePanel(Node):
             JointTrajectory, self.monitor_head_cmd_topic, 10)
         self.head_enabled_pub = self.create_publisher(
             Bool, self.head_enabled_topic, enabled_qos)
+        self.mission_b_grasp_guard_pub = None
+        if self.mission_b_grasp_guard_enabled_topic:
+            self.mission_b_grasp_guard_pub = self.create_publisher(
+                Bool, self.mission_b_grasp_guard_enabled_topic, enabled_qos)
         self.ok_pub = self.create_publisher(String, self.operator_ok_topic, 10)
         self.layout_command_pub = None
         if self.layout_command_topic:
@@ -205,12 +222,20 @@ class OperatorDrivePanel(Node):
         if self.head_mux_status_topic:
             self.head_mux_status_sub = self.create_subscription(
                 String, self.head_mux_status_topic, self._head_mux_status_callback, 10)
+        self.mission_b_grasp_guard_status_sub = None
+        if self.mission_b_grasp_guard_status_topic:
+            self.mission_b_grasp_guard_status_sub = self.create_subscription(
+                String,
+                self.mission_b_grasp_guard_status_topic,
+                self._mission_b_grasp_guard_status_callback,
+                enabled_qos)
         if self.joint_state_topic:
             self.create_subscription(JointState, self.joint_state_topic, self._joint_state_callback, 10)
 
         self._init_window()
         self._publish_enabled()
         self._publish_head_enabled()
+        self._publish_mission_b_grasp_guard_enabled()
         if not self.gui_available:
             self.headless_timer = self.create_timer(self.tick_period_s, self._headless_tick)
         self.get_logger().info(
@@ -222,9 +247,11 @@ class OperatorDrivePanel(Node):
         self.closing = True
         self.drive_enabled = False
         self.head_enabled = False
+        self.mission_b_grasp_guard_enabled = False
         self._clear_motion('SHUTDOWN - STOPPED')
         self._publish_enabled()
         self._publish_head_enabled()
+        self._publish_mission_b_grasp_guard_enabled()
         self._destroy_window()
         super().destroy_node()
 
@@ -265,6 +292,15 @@ class OperatorDrivePanel(Node):
             status = {}
         self.last_head_mux_status = status if isinstance(status, dict) else {}
         self.last_head_mux_status_time_s = self._now_s()
+
+    def _mission_b_grasp_guard_status_callback(self, msg):
+        try:
+            status = json.loads(msg.data)
+        except (TypeError, ValueError):
+            status = {}
+        self.last_mission_b_grasp_guard_status = status if isinstance(status, dict) else {}
+        self.last_mission_b_grasp_guard_status_time_s = self._now_s()
+        self._update_display()
 
     def _layout_status_callback(self, msg):
         text = str(msg.data or '').strip()
@@ -409,6 +445,10 @@ class OperatorDrivePanel(Node):
         self.head_var = tk.StringVar(value='head: --')
         self.head_drive_var = tk.StringVar(value='HEAD LOCKED')
         self.layout_status_var = tk.StringVar(value=self.last_layout_status)
+        self.mission_b_grasp_guard_var = tk.StringVar(
+            value='MISSION B GRASP GUARD OFF')
+        self.mission_b_grasp_guard_status_var = tk.StringVar(
+            value='guard: OFF')
 
         outer = tk.Frame(root, bg='#202226')
         outer.pack(fill='both', expand=True, padx=16, pady=14)
@@ -485,6 +525,29 @@ class OperatorDrivePanel(Node):
             activeforeground='#ffffff',
         )
         self.speed_button.pack(fill='x', pady=(0, 12))
+
+        self.mission_b_grasp_guard_button = tk.Button(
+            outer,
+            textvariable=self.mission_b_grasp_guard_var,
+            command=self._toggle_mission_b_grasp_guard,
+            font=('Helvetica', 11, 'bold'),
+            height=2,
+            bg='#5b4444',
+            fg='#ffffff',
+            activebackground='#5b4444',
+            activeforeground='#ffffff',
+        )
+        self.mission_b_grasp_guard_button.pack(fill='x', pady=(0, 4))
+        self.mission_b_grasp_guard_status_label = tk.Label(
+            outer,
+            textvariable=self.mission_b_grasp_guard_status_var,
+            bg='#202226',
+            fg='#b7c2cc',
+            anchor='w',
+            wraplength=max(self.window_width - 40, 280),
+            font=('Helvetica', 10),
+        )
+        self.mission_b_grasp_guard_status_label.pack(fill='x', pady=(0, 8))
 
         grid = tk.Frame(outer, bg='#202226')
         grid.pack(fill='x', expand=False)
@@ -883,6 +946,11 @@ class OperatorDrivePanel(Node):
         self._publish_head_enabled()
         self._update_display()
 
+    def _toggle_mission_b_grasp_guard(self):
+        self.mission_b_grasp_guard_enabled = not self.mission_b_grasp_guard_enabled
+        self._publish_mission_b_grasp_guard_enabled()
+        self._update_display()
+
     def _clear_motion(self, status_text=None):
         self._cancel_all_release_jobs()
         self.pressed_actions.clear()
@@ -904,6 +972,9 @@ class OperatorDrivePanel(Node):
         if self.head_enabled:
             self.head_enabled = False
             self._publish_head_enabled()
+        if self.mission_b_grasp_guard_enabled:
+            self.mission_b_grasp_guard_enabled = False
+            self._publish_mission_b_grasp_guard_enabled()
 
     def _gui_tick(self):
         if self.closing or self.root is None:
@@ -953,6 +1024,13 @@ class OperatorDrivePanel(Node):
         msg = Bool()
         msg.data = bool(self.head_enabled)
         self.head_enabled_pub.publish(msg)
+
+    def _publish_mission_b_grasp_guard_enabled(self):
+        if self.mission_b_grasp_guard_pub is None:
+            return
+        msg = Bool()
+        msg.data = bool(self.mission_b_grasp_guard_enabled)
+        self.mission_b_grasp_guard_pub.publish(msg)
 
     def _active_actions(self):
         actions = set(self.pressed_actions)
@@ -1179,6 +1257,7 @@ class OperatorDrivePanel(Node):
         self.speed_button_var.set(self._speed_button_text())
         self.layout_status_var.set(self.last_layout_status)
         self._update_head_display()
+        self._update_mission_b_grasp_guard_display()
 
         button_bg = '#344258' if self.drive_enabled else '#33363d'
         active_bg = '#4f6f91'
@@ -1214,6 +1293,60 @@ class OperatorDrivePanel(Node):
         if self._head_mux_status_fresh():
             owner = self.last_head_mux_status.get('owner', '--')
         self.head_var.set(f'{self.head_status_text} | owner={owner} | {pos_text}')
+
+    def _mission_b_grasp_guard_status_fresh(self):
+        return (
+            self.last_mission_b_grasp_guard_status_time_s > 0.0 and
+            (self._now_s() - self.last_mission_b_grasp_guard_status_time_s) <= 1.5
+        )
+
+    def _update_mission_b_grasp_guard_display(self):
+        subscribers = (
+            self.count_subscribers(self.mission_b_grasp_guard_enabled_topic)
+            if self.mission_b_grasp_guard_enabled_topic
+            else 0
+        )
+        if self.mission_b_grasp_guard_enabled and subscribers <= 0:
+            button_bg = '#7a3232'
+            button_text = 'MISSION B GRASP GUARD ON - NO NODE'
+        elif self.mission_b_grasp_guard_enabled:
+            button_bg = '#2d7d4c'
+            button_text = 'MISSION B GRASP GUARD ON'
+        else:
+            button_bg = '#5b4444'
+            button_text = 'MISSION B GRASP GUARD OFF'
+        self.mission_b_grasp_guard_var.set(button_text)
+        self.mission_b_grasp_guard_button.configure(
+            bg=button_bg, fg='#ffffff', activebackground=button_bg)
+        self.mission_b_grasp_guard_status_var.set(
+            self._mission_b_grasp_guard_status_text(subscribers))
+
+    def _mission_b_grasp_guard_status_text(self, subscribers):
+        if self.mission_b_grasp_guard_pub is None:
+            return 'guard: topic disabled'
+        if subscribers <= 0:
+            return 'guard: no guard node subscribed'
+        if not self._mission_b_grasp_guard_status_fresh():
+            return 'guard: waiting for status'
+
+        status = self.last_mission_b_grasp_guard_status
+        node_enabled = bool(status.get('enabled'))
+        last = status.get('last') or {}
+        reason = str(last.get('reason') or '--')
+        frozen = last.get('frozen') or []
+        warnings = last.get('warnings') or []
+        current_age = status.get('current_age_s')
+        joint_age = status.get('joint_state_age_s')
+        age_text = ''
+        if current_age is not None and joint_age is not None:
+            age_text = f' age c/j={float(current_age):.1f}/{float(joint_age):.1f}s'
+        warn_text = ''
+        if warnings:
+            warn_text = f' warn={",".join(str(item) for item in warnings[:2])}'
+        return (
+            f'guard: node={"ON" if node_enabled else "OFF"} '
+            f'last={reason} frozen={len(frozen)}{age_text}{warn_text}'
+        )
 
     def _publish_layout_command(self, command):
         command = str(command or '').strip().lower()
@@ -1258,9 +1391,11 @@ class OperatorDrivePanel(Node):
         self.closing = True
         self.drive_enabled = False
         self.head_enabled = False
+        self.mission_b_grasp_guard_enabled = False
         self._clear_motion('CLOSED - STOPPED')
         self._publish_enabled()
         self._publish_head_enabled()
+        self._publish_mission_b_grasp_guard_enabled()
         self._destroy_window()
 
     def _destroy_window(self):
